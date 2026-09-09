@@ -1,0 +1,1 @@
+{"planningRunId":"82423fdd-0736-4595-9f3a-a8bc6c5046de","status":"FAILED","errorMessage":"NO_CANDIDATES","warnings":["REGULATION_COVERAGE_PARTIAL","ACCESS_UNKNOWN","DEPTH_FALLBACK"],"filterSummary":{"generated":0,"accepted":0,"waypoints":0,"rejections":{"SHORE_INACCESSIBLE":9,"DUPLICATE":55}}}

@@ -1,0 +1,404 @@
+spring:
+  application:
+    name: ai-fishing-be
+  profiles:
+    default: dev
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate
+    properties:
+      hibernate:
+        jdbc:
+          time_zone: UTC
+          batch_size: 500
+        order_inserts: true
+  flyway:
+    enabled: true
+  jackson:
+    default-property-inclusion: non_null
+    serialization:
+      write-dates-as-timestamps: false
+
+server:
+  port: 8080
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      show-details: never
+
+springdoc:
+  swagger-ui:
+    path: /swagger-ui.html
+  api-docs:
+    path: /v3/api-docs
+
+app:
+  dev:
+    default-user-id: 11111111-1111-1111-1111-111111111111
+  admin:
+    enabled: false
+  auth:
+    issuer: ${APP_AUTH_ISSUER:}
+    client-id: ${APP_AUTH_CLIENT_ID:}
+    web-client-id: ${APP_AUTH_WEB_CLIENT_ID:}
+  cors:
+    allowed-origin-patterns: ${APP_CORS_ALLOWED_ORIGIN_PATTERNS:http://localhost:*,http://127.0.0.1:*}
+  aws:
+    region: ${APP_AWS_REGION:}
+  s3:
+    bucket: ${APP_S3_BUCKET:}
+  raw:
+    storage: ${APP_RAW_STORAGE:local}
+    local-dir: ./data/raw
+    s3:
+      bucket: ${APP_S3_BUCKET:}
+      prefix: raw/
+  ontario:
+    provider: LIO
+    identity-max-distance-km: 15
+    page-size: 2000
+    lio:
+      open01-base: https://ws.lioservices.lrc.gov.on.ca/arcgis2/rest/services/LIO_OPEN_DATA/LIO_Open01/MapServer
+      open07-base: https://ws.lioservices.lrc.gov.on.ca/arcgis2/rest/services/LIO_OPEN_DATA/LIO_Open07/MapServer
+      waterbody-layer: 25
+      shoreline-layer: 14
+      hydro-poly-layer: 10
+      watercourse-layer: 26
+      bathymetry-index-layer: 31
+      bathymetry-line-layer: 30
+      bathymetry-point-layer: 27
+      wetland-layer: 15
+      ara-poly-layer: 2
+      fish-activity-layer: 31
+      access-layer: 15
+      fmz-layer: 14
+      stocking-url: https://services1.arcgis.com/TJH5KDher0W13Kgo/arcgis/rest/services/FishStockingDataForRecreationalPurposes/FeatureServer/0
+      regulations-url: https://data.ontario.ca/dataset/recreational-fishing-regulations-data
+  ingestion:
+    access:
+      max-lake-association-meters: 300
+  processing:
+    algorithm-version: "1.0.0"
+    persist-surfaces: false
+    derived-dir: ./data/derived
+    close-contour-tolerance-m: 15
+    min-closed-area-m2: 400
+    hump-min-relief-m: 0.5
+    basin-min-relief-m: 0.5
+    dropoff-min-gradient: 0.04
+    dropoff-max-spacing-m: 120
+    flat-min-area-m2: 15000
+    flat-max-gradient: 0.012
+    point-min-prominence-m: 25
+    point-window-m: 80
+    point-min-prominence-ratio: 0.9
+    point-min-spacing-m: 60
+    island-min-area-m2: 150
+    island-bathy-buffer-m: 80
+    tile-size-m: 500
+  openai:
+    api-key: ${OPENAI_API_KEY:}
+    model: gpt-4o
+    strategy-model: gpt-4o
+    timeout-seconds: 120
+    max-tokens: 4000
+    web-search-enabled: false
+    strategy-prompt-version: fishing-strategy-v1
+  strategy:
+    feature-pipeline: GIS
+  planning:
+    user-default-feature-pipeline: GIS
+    algorithm-version: "1.4.0"
+    spatial:
+      derivation-version: spatial-targets-v2
+      zone-builder-version: physical-zones-v3
+      navigation-version: water-nav-v3
+      pairwise-full-node-limit: 48
+      pairwise-full-portal-limit: 16
+      max-nav-nodes-per-zone: 2500
+      concave-hull-edge-length-ratio: 0.35
+      sliver-min-area-m2: 80
+      corridor-width-shore-m: 25
+      corridor-width-drop-off-m: 20
+      corridor-width-default-m: 18
+      max-segment-length-m: 600
+      cluster-connect-m: 220
+      cluster-max-diameter-m: 900
+      zone-neighbor-search-radius-m: 550
+      zone-water-path-join-max-m: 400
+      zone-max-water-path-diameter-m: 900
+      zone-max-internal-gap-m: 450
+      zone-min-coverage-density: 6.0
+      path-coverage-unit-m: 80
+      nav-min-water-coverage: 0.55
+      nav-max-island-fraction: 0.15
+      nav-tile-size-cells: 128
+      cluster-min-members: 3
+      cluster-max-members: 8
+      local-path-cell-size-m: 25
+      local-path-max-cells: 40000
+      internal-cruise-kmh: 6
+      max-zone-portals: 4
+      max-portal-pairs-per-zone: 8
+      sample-along-m: 40
+      max-samples-per-geometry: 9
+      max-skipped-target-ratio: 0.15
+      max-skipped-partition-ratio: 0.20
+    candidates:
+      min-spacing-m: 150
+      max-per-feature-type: 8
+      max-total: 24
+      depth-tolerance-m: 0
+      fallback-depth-tolerance-m: 1.5
+    ranking:
+      strategy-match: 0.20
+      depth-match: 0.15
+      feature-confidence: 0.15
+      time-window-match: 0.10
+      gear-compatibility: 0.10
+      weather-compatibility: 0.10
+      travel-access: 0.10
+      historical-performance: 0.10
+    schedule:
+      min-spot-minutes: 20
+      max-spot-minutes: 90
+      max-waypoints: 5
+      min-waypoints: 1
+      return-buffer-minutes: 15
+      slot-minutes: 15
+      dwell-options-minutes: [20, 30, 45, 60, 75, 90]
+      wait-options-minutes: [15, 30]
+      wait-penalty: 0.06
+      max-total-wait-minutes: 60
+      why-this-time-min-delta: 0.08
+      why-this-time-horizon-slots: 8
+      beam-width: 8
+      dwell-decay: 0.85
+    environment:
+      solar:
+        max-weight: 0.12
+        low-radiation-threshold: 120
+        high-radiation-threshold: 700
+        overcast-cloud-percent: 85
+        clear-cloud-percent: 25
+      wind:
+        fishing-max-weight: 0.08
+      temperature:
+        max-weight: 0.04
+        air-proxy-weight: 0.35
+    travel:
+      detour-factor: 1.35
+      land-crossing-detour-factor: 2.2
+      default-boat-kmh: 12
+      default-shore-kmh: 4
+      max-one-way-fraction-of-trip: 0.25
+    access:
+      require-access-for-boat: false
+      shore-unverified-accessibility-score: 0.35
+    boat:
+      max-one-way-km:
+        KAYAK: 4
+        CANOE: 5
+        INFLATABLE: 6
+        PONTOON: 15
+        FISHING_BOAT: 20
+        OTHER: 8
+    safety:
+      wind-hard-reject-kmh: 40
+      wind-penalty-kmh: 25
+  launch:
+    custom:
+      max-snap-meters: 250
+      preferred-water-offset-meters: 15
+      fallback-water-offset-meters: [8, 3]
+      nearby-official-meters: 100
+      material-move-meters: 15
+      resolution-version: launch-geometry-v1
+    recommendation:
+      algorithm-version: "1.0.0"
+      top-candidate-count: 8
+      coverage-weight: 0.40
+      travel-weight: 0.30
+      boat-feasibility-weight: 0.20
+      access-confidence-weight: 0.10
+  boat-capability:
+    resolver-version: boat-capability-v1.1
+    prompt-version: boat-capability-v1
+    web-search-enabled: true
+    range-reserve-fraction: 0.30
+    low-range-confidence-threshold: 0.50
+    max-cruise-speed-kmh: 80
+    max-practical-range-km: 80
+    # Optional age hint only. Cache is NOT refreshed on a 90-day timer.
+    cache-days: 90
+    wind-derate:
+      penalty:
+        LOW: 0.35
+        MEDIUM: 0.20
+        HIGH: 0.10
+    fallback:
+      defaults:
+        cruise-speed-kmh: 8
+        cruise-confidence: 0.40
+        range-confidence: 0.25
+        wind-wave: LOW
+        wind-confidence: 0.45
+      by-propulsion:
+        NONE:
+          cruise-speed-kmh: 3
+          range-confidence: 0.15
+          wind-wave: LOW
+        PADDLE:
+          cruise-speed-kmh: 4
+          practical-range-km: 8
+          range-confidence: 0.35
+          wind-wave: LOW
+        PEDAL:
+          cruise-speed-kmh: 8
+          practical-range-km: 15
+          range-confidence: 0.40
+          wind-wave: LOW
+        ELECTRIC_TROLLING:
+          cruise-speed-kmh: 6
+          practical-range-km: 8
+          range-confidence: 0.20
+          wind-wave: LOW
+        ELECTRIC_OUTBOARD:
+          cruise-speed-kmh: 12
+          practical-range-km: 18
+          range-confidence: 0.40
+          wind-wave: MEDIUM
+        GAS_OUTBOARD:
+          cruise-speed-kmh: 18
+          practical-range-km: 30
+          range-confidence: 0.50
+          wind-wave: MEDIUM
+      by-boat-type:
+        INFLATABLE:
+          wind-wave: LOW
+          max-cruise-speed-kmh: 28
+        KAYAK:
+          wind-wave: LOW
+          max-cruise-speed-kmh: 12
+        CANOE:
+          wind-wave: LOW
+          max-cruise-speed-kmh: 10
+        PONTOON:
+          wind-wave: MEDIUM
+          max-cruise-speed-kmh: 35
+        FISHING_BOAT:
+          wind-wave: MEDIUM
+          max-cruise-speed-kmh: 60
+        OTHER:
+          wind-wave: LOW
+          max-cruise-speed-kmh: 25
+      electric-thrust-bands:
+        - max-inclusive: 55
+          cruise-speed-kmh: 6
+          cruise-confidence: 0.45
+          practical-range-km: 8
+          range-confidence: 0.20
+          wind-wave: LOW
+          wind-confidence: 0.40
+        - max-inclusive: 80
+          cruise-speed-kmh: 8
+          cruise-confidence: 0.45
+          practical-range-km: 12
+          range-confidence: 0.35
+          wind-wave: LOW
+        - max-inclusive: 999
+          cruise-speed-kmh: 12
+          cruise-confidence: 0.50
+          practical-range-km: 20
+          range-confidence: 0.40
+          wind-wave: MEDIUM
+      gas-horsepower-bands:
+        - max-inclusive: 9.9
+          cruise-speed-kmh: 16
+          cruise-confidence: 0.55
+          practical-range-km: 40
+          range-confidence: 0.60
+          wind-wave: MEDIUM
+          wind-confidence: 0.55
+        - max-inclusive: 15
+          cruise-speed-kmh: 22
+          cruise-confidence: 0.60
+          practical-range-km: 55
+          range-confidence: 0.65
+          wind-wave: MEDIUM
+          wind-confidence: 0.55
+        - max-inclusive: 40
+          cruise-speed-kmh: 32
+          cruise-confidence: 0.60
+          practical-range-km: 50
+          range-confidence: 0.65
+          wind-wave: MEDIUM
+        - max-inclusive: 999
+          cruise-speed-kmh: 40
+          cruise-confidence: 0.55
+          practical-range-km: 60
+          range-confidence: 0.55
+          wind-wave: HIGH
+  session:
+    waypoint:
+      approach-radius-m: 150
+      arrival-radius-m: 60
+      departure-radius-m: 100
+      arrival-confirm-seconds: 30
+      arrival-confirm-samples: 4
+      fishing-dwell-seconds: 120
+    location:
+      max-accuracy-m: 50
+      impossible-speed-mps: 40
+      max-batch-size: 100
+    navigation:
+      approach-radius-m: 150
+      arrival-radius-m: 60
+      off-route-m: 40
+  feedback:
+    catch:
+      waypoint-association-radius-m: 150
+      max-location-age-seconds: 30
+    photo:
+      max-bytes: 8388608
+      presign-ttl-seconds: 120
+      allowed-content-types:
+        - image/jpeg
+        - image/png
+        - image/webp
+    effort:
+      derivation-version: effort-v1
+      max-trolling-speed-mps: 4
+      max-sample-gap-seconds: 120
+    performance:
+      min-effort-minutes: 15
+      prior-effort-hours: 4
+      prior-landed-per-hour: 0.5
+      historical-ranking-weight: 0.10
+      spatial-buffer-m: 75
+      user-blend-prior-hours: 4
+  weather:
+    provider: open-meteo
+    forecast-horizon-days: 16
+    timeout-seconds: 20
+    base-url: https://api.open-meteo.com
+  vision:
+    max-image-px: 2048
+    persist-maps: true
+    max-meters-per-pixel: 8
+    tile-overlap-m: 80
+    hybrid-gis-min-confidence: 0.6
+    prompt-version: canonical-render-v1
+  benchmark:
+    gold-resource: classpath:benchmarks/head-lake-reference.geojson
+    screenshot-metrics-resource: classpath:benchmarks/head-direct-screenshot-vision.json
+
+logging:
+  pattern:
+    level: "%5p [${spring.application.name:},%X{requestId:-}]"

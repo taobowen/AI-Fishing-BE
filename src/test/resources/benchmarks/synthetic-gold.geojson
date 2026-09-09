@@ -1,0 +1,39 @@
+{
+  "type": "FeatureCollection",
+  "properties": {
+    "lakeName": "Synthetic Head",
+    "srid": 4326
+  },
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {
+        "type": "HUMP",
+        "name": "center-hump",
+        "confidence": "high"
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[
+          [-78.921, 44.749],
+          [-78.919, 44.749],
+          [-78.919, 44.751],
+          [-78.921, 44.751],
+          [-78.921, 44.749]
+        ]]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "type": "POINT",
+        "name": "north-point",
+        "confidence": "high"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [-78.92, 44.754]
+      }
+    }
+  ]
+}

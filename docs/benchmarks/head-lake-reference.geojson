@@ -1,0 +1,10 @@
+{
+  "type": "FeatureCollection",
+  "properties": {
+    "lakeName": "Head Lake",
+    "srid": 4326,
+    "confidence": "high",
+    "sop": "Label only clearly identifiable major HUMP, DROP_OFF, FLAT, POINT, BASIN, and ISLAND_EDGE after reviewing the canonical north-up map. Target 20–40 features. Do not copy GIS or Vision output. Fill this file after live Phase 2 import."
+  },
+  "features": []
+}

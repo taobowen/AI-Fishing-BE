@@ -1,0 +1,13 @@
+spring:
+  datasource:
+    url: jdbc:postgresql://localhost:5432/aifishing
+    username: aifishing
+    password: aifishing
+  jpa:
+    show-sql: false
+
+app:
+  seed:
+    enabled: true
+  admin:
+    enabled: true

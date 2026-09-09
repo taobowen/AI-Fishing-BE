@@ -1,0 +1,16 @@
+{
+  "hosted-zone:account=905418417106:domainName=taobowen.com:region=us-east-1": {
+    "Id": "/hostedzone/Z039694632XI0TU5KZALE",
+    "Name": "taobowen.com."
+  },
+  "availability-zones:account=905418417106:region=ca-central-1": [
+    "ca-central-1a",
+    "ca-central-1b",
+    "ca-central-1d",
+    "ca-central-1-wl1-yto-wlz-1"
+  ],
+  "hosted-zone:account=905418417106:domainName=taobowen.com:region=ca-central-1": {
+    "Id": "/hostedzone/Z039694632XI0TU5KZALE",
+    "Name": "taobowen.com."
+  }
+}

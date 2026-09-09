@@ -1,0 +1,34 @@
+{
+  "app": "npx ts-node --prefer-ts-exts bin/app.ts",
+  "context": {
+    "stage": "prod",
+    "region": "ca-central-1",
+    "cognitoDomainPrefix": "castwise-taobowen",
+    "hostedZoneName": "taobowen.com",
+    "apiDomain": "api.onwaterguide.taobowen.com",
+    "webDomain": "onwaterguide.taobowen.com",
+    "websiteCertificateArn": "arn:aws:acm:us-east-1:905418417106:certificate/6a1fd5ea-5b40-4040-a586-3b5bbef34b6a",
+    "googleEnabled": true,
+    "googleSecretArn": "arn:aws:secretsmanager:ca-central-1:905418417106:secret:castwise/prod/google-oauth-ceTCaS",
+    "appleEnabled": true,
+    "appleSecretArn": "arn:aws:secretsmanager:ca-central-1:905418417106:secret:castwise/prod/apple-signin-TfJC1u",
+    "imageTag": "dev",
+    "desiredCount": 1,
+    "cpu": 512,
+    "memoryMiB": 4096,
+    "dbInstanceClass": "t4g.small",
+    "logRetentionDays": 14,
+    "callbackUrls": ["aifishing://auth"],
+    "logoutUrls": ["aifishing://auth"],
+    "webCallbackUrls": [
+      "http://localhost:3000/auth/callback/",
+      "https://onwaterguide.taobowen.com/auth/callback/",
+      "https://castwise.taobowen.com/auth/callback/"
+    ],
+    "webLogoutUrls": [
+      "http://localhost:3000/",
+      "https://onwaterguide.taobowen.com/",
+      "https://castwise.taobowen.com/"
+    ]
+  }
+}

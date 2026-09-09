@@ -1,0 +1,21 @@
+spring:
+  jpa:
+    show-sql: false
+
+app:
+  auth:
+    client-id: mobile
+    web-client-id: web
+  seed:
+    enabled: false
+  admin:
+    enabled: true
+  raw:
+    local-dir: ./target/test-raw
+  processing:
+    persist-surfaces: false
+    derived-dir: ./target/test-derived
+  vision:
+    persist-maps: true
+    max-image-px: 512
+    max-meters-per-pixel: 50

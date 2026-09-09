@@ -1,0 +1,27 @@
+{
+  "sportFishFallback": [
+    "SMALLMOUTH_BASS",
+    "WALLEYE",
+    "LARGEMOUTH_BASS",
+    "NORTHERN_PIKE",
+    "LAKE_TROUT"
+  ],
+  "lakes": {
+    "44444444-4444-4444-4444-444444444444": {
+      "name": "Head Lake",
+      "primaryTargetSpecies": "SMALLMOUTH_BASS"
+    },
+    "44444444-4444-4444-4444-444444444445": {
+      "name": "Rice Lake",
+      "primaryTargetSpecies": "WALLEYE"
+    },
+    "44444444-4444-4444-4444-444444444446": {
+      "name": "Lake Scugog",
+      "primaryTargetSpecies": "LARGEMOUTH_BASS"
+    },
+    "44444444-4444-4444-4444-444444444447": {
+      "name": "Lake Simcoe",
+      "primaryTargetSpecies": "LAKE_TROUT"
+    }
+  }
+}

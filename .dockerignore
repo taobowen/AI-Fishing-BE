@@ -1,0 +1,9 @@
+target
+.git
+.github
+infra
+docs
+**/.DS_Store
+*.md
+.env
+.env.*

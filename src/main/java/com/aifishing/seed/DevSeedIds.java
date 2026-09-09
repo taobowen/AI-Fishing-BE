@@ -1,0 +1,23 @@
+package com.aifishing.seed;
+
+import java.util.UUID;
+
+public final class DevSeedIds {
+
+    public static final UUID USER_ID = UUID.fromString("11111111-1111-1111-1111-111111111111");
+    public static final UUID OTHER_USER_ID = UUID.fromString("11111111-1111-1111-1111-111111111112");
+    public static final UUID PROFILE_ID = UUID.fromString("22222222-2222-2222-2222-222222222222");
+    public static final UUID GEAR_ROD_ID = UUID.fromString("aaaaaaaa-aaaa-aaaa-aaaa-000000000001");
+    public static final UUID GEAR_REEL_ID = UUID.fromString("aaaaaaaa-aaaa-aaaa-aaaa-000000000002");
+    public static final UUID GEAR_LINE_ID = UUID.fromString("aaaaaaaa-aaaa-aaaa-aaaa-000000000003");
+    public static final UUID GEAR_LURE_ID = UUID.fromString("aaaaaaaa-aaaa-aaaa-aaaa-000000000004");
+    public static final UUID BOAT_ID = UUID.fromString("33333333-3333-3333-3333-333333333333");
+    public static final UUID LAKE_ID = UUID.fromString("44444444-4444-4444-4444-444444444444");
+    public static final UUID RICE_LAKE_ID = UUID.fromString("44444444-4444-4444-4444-444444444445");
+    public static final UUID SCUGOG_LAKE_ID = UUID.fromString("44444444-4444-4444-4444-444444444446");
+    public static final UUID SIMCOE_LAKE_ID = UUID.fromString("44444444-4444-4444-4444-444444444447");
+    public static final UUID TRIP_ID = UUID.fromString("55555555-5555-5555-5555-555555555555");
+
+    private DevSeedIds() {
+    }
+}

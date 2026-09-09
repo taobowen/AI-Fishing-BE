@@ -1,0 +1,15 @@
+target/
+.env
+*.p8
+AuthKey_*.p8
+data/raw/
+build/validation-artifacts/
+validation-artifacts/
+.idea/
+*.iml
+.classpath
+.project
+.settings/
+.DS_Store
+*.log
+.mvn/wrapper/maven-wrapper.jar

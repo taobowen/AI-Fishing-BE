@@ -1,0 +1,12 @@
+{
+  "model": null,
+  "promptVersion": null,
+  "screenshotDescription": null,
+  "source": null,
+  "featureCountsByType": {},
+  "precision": null,
+  "recall": null,
+  "f1": null,
+  "perType": {},
+  "notes": "Placeholder. Fill after a manual Direct Screenshot Vision pass against the Head Lake human overlay. Do not invent scores. This file is an external baseline only; screenshot features are not persisted in lake_features."
+}

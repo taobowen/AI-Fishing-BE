@@ -1,0 +1,19 @@
+services:
+  postgres:
+    image: postgis/postgis:16-3.5
+    environment:
+      POSTGRES_DB: aifishing
+      POSTGRES_USER: aifishing
+      POSTGRES_PASSWORD: aifishing
+    ports:
+      - "5432:5432"
+    volumes:
+      - aifishing_pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U aifishing -d aifishing"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  aifishing_pg:

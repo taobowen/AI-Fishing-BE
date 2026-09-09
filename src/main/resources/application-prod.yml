@@ -1,0 +1,29 @@
+spring:
+  datasource:
+    hikari:
+      maximum-pool-size: 5
+      minimum-idle: 1
+  jpa:
+    hibernate:
+      ddl-auto: validate
+  flyway:
+    enabled: true
+
+springdoc:
+  api-docs:
+    enabled: false
+  swagger-ui:
+    enabled: false
+
+app:
+  seed:
+    enabled: false
+  admin:
+    enabled: true
+  raw:
+    storage: s3
+  processing:
+    persist-surfaces: true
+    derived-dir: /tmp/aifishing-derived
+  vision:
+    persist-maps: true
