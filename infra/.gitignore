@@ -2,6 +2,7 @@ node_modules
 dist
 cdk.out
 *.js
+!lambda/**/*.js
 *.d.ts
 .secrets/
 !lib/.gitkeep
