@@ -20,8 +20,12 @@ export class WebsiteCertStack extends Stack {
     }
 
     const zone = HostedZone.fromLookup(this, "Zone", { domainName: config.hostedZoneName });
+    const altNames = config.nextWebDomain && config.nextWebDomain !== config.webDomain
+      ? [config.nextWebDomain]
+      : undefined;
     this.certificate = new Certificate(this, "Cert", {
       domainName: config.webDomain,
+      subjectAlternativeNames: altNames,
       validation: CertificateValidation.fromDns(zone),
     });
     new CfnOutput(this, "WebsiteCertificateArn", { value: this.certificate.certificateArn });

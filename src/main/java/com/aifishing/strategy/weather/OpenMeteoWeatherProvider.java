@@ -1,5 +1,6 @@
 package com.aifishing.strategy.weather;
 
+import com.aifishing.planning.environment.TripClock;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
@@ -43,27 +44,49 @@ public class OpenMeteoWeatherProvider implements WeatherProvider {
             LocalTime fishingStart,
             LocalTime fishingEnd
     ) {
+        return forecast(
+                latitude,
+                longitude,
+                timeZoneId,
+                date,
+                TripClock.inferEndDate(date, fishingStart, fishingEnd),
+                fishingStart,
+                fishingEnd
+        );
+    }
+
+    @Override
+    public WeatherContext forecast(
+            double latitude,
+            double longitude,
+            String timeZoneId,
+            LocalDate startDate,
+            LocalDate endDate,
+            LocalTime fishingStart,
+            LocalTime fishingEnd
+    ) {
         Instant retrievedAt = Instant.now();
         ZoneId zone = ZoneId.of(timeZoneId == null || timeZoneId.isBlank() ? "UTC" : timeZoneId);
         LocalDate today = LocalDate.now(zone);
-        long daysAhead = ChronoUnit.DAYS.between(today, date);
+        LocalDate queryEnd = endDate == null ? startDate : endDate;
+        long daysAhead = ChronoUnit.DAYS.between(today, startDate);
         if (daysAhead < 0) {
-            return empty(WeatherAvailability.UNAVAILABLE, retrievedAt, timeZoneId, date,
+            return empty(WeatherAvailability.UNAVAILABLE, retrievedAt, timeZoneId, startDate,
                     "Trip date is in the past relative to the lake timezone; forecast product was not queried.");
         }
         if (daysAhead > properties.getForecastHorizonDays()) {
-            return empty(WeatherAvailability.OUT_OF_FORECAST_RANGE, retrievedAt, timeZoneId, date,
+            return empty(WeatherAvailability.OUT_OF_FORECAST_RANGE, retrievedAt, timeZoneId, startDate,
                     "Trip date is beyond the configured forecast horizon (" + properties.getForecastHorizonDays() + " days).");
         }
         try {
             String uri = UriComponentsBuilder.fromUriString(properties.getBaseUrl() + "/v1/forecast")
                     .queryParam("latitude", latitude)
                     .queryParam("longitude", longitude)
-                    .queryParam("hourly", "temperature_2m,precipitation,cloud_cover,wind_speed_10m,wind_direction_10m,surface_pressure,shortwave_radiation,direct_radiation")
+                    .queryParam("hourly", "temperature_2m,precipitation,cloud_cover,wind_speed_10m,wind_direction_10m,surface_pressure,shortwave_radiation,direct_radiation,weather_code")
                     .queryParam("daily", "sunrise,sunset")
                     .queryParam("timezone", timeZoneId)
-                    .queryParam("start_date", date)
-                    .queryParam("end_date", date)
+                    .queryParam("start_date", startDate)
+                    .queryParam("end_date", queryEnd)
                     .queryParam("wind_speed_unit", "kmh")
                     .build(true)
                     .toUriString();
@@ -71,10 +94,10 @@ public class OpenMeteoWeatherProvider implements WeatherProvider {
                     .requestFactory(requestFactory())
                     .build();
             String body = client.get().uri(uri).retrieve().body(String.class);
-            return parseForecast(body, retrievedAt, timeZoneId, date, fishingStart, fishingEnd);
+            return parseForecast(body, retrievedAt, timeZoneId, startDate, queryEnd, fishingStart, fishingEnd);
         } catch (Exception ex) {
             log.warn("Open-Meteo forecast failed: {}", ex.getMessage());
-            return empty(WeatherAvailability.FAILED, retrievedAt, timeZoneId, date,
+            return empty(WeatherAvailability.FAILED, retrievedAt, timeZoneId, startDate,
                     "Weather provider call failed: " + truncate(ex.getMessage()));
         }
     }
@@ -87,12 +110,36 @@ public class OpenMeteoWeatherProvider implements WeatherProvider {
             LocalTime fishingStart,
             LocalTime fishingEnd
     ) throws Exception {
+        return parseForecast(
+                body,
+                retrievedAt,
+                timeZoneId,
+                date,
+                TripClock.inferEndDate(date, fishingStart, fishingEnd),
+                fishingStart,
+                fishingEnd
+        );
+    }
+
+    WeatherContext parseForecast(
+            String body,
+            Instant retrievedAt,
+            String timeZoneId,
+            LocalDate startDate,
+            LocalDate endDate,
+            LocalTime fishingStart,
+            LocalTime fishingEnd
+    ) throws Exception {
         JsonNode root = objectMapper.readTree(body == null ? "{}" : body);
         JsonNode hourly = root.path("hourly");
         JsonNode times = hourly.path("time");
         List<WeatherContext.HourlyWeather> hours = new ArrayList<>();
+        ZoneId zone = ZoneId.of(timeZoneId == null || timeZoneId.isBlank() ? "UTC" : timeZoneId);
+        LocalDate queryEnd = endDate == null ? startDate : endDate;
         LocalTime start = fishingStart == null ? LocalTime.MIN : fishingStart;
         LocalTime end = fishingEnd == null ? LocalTime.MAX : fishingEnd;
+        Instant windowStart = TripClock.resolve(startDate, queryEnd, start, end, zone).startAt();
+        Instant windowEnd = TripClock.resolve(startDate, queryEnd, start, end, zone).endAt();
         double airSum = 0;
         double windSum = 0;
         double precipSum = 0;
@@ -105,13 +152,11 @@ public class OpenMeteoWeatherProvider implements WeatherProvider {
         Double windDir = null;
         for (int i = 0; i < times.size(); i++) {
             LocalDateTime dateTime = LocalDateTime.parse(times.get(i).asText(), DateTimeFormatter.ISO_LOCAL_DATE_TIME);
-            if (!dateTime.toLocalDate().equals(date)) {
+            Instant at = dateTime.atZone(zone).toInstant();
+            if (at.isBefore(windowStart) || at.isAfter(windowEnd)) {
                 continue;
             }
             LocalTime time = dateTime.toLocalTime();
-            if (time.isBefore(start) || time.isAfter(end)) {
-                continue;
-            }
             Double air = number(hourly.path("temperature_2m"), i);
             Double wind = number(hourly.path("wind_speed_10m"), i);
             Double dir = number(hourly.path("wind_direction_10m"), i);
@@ -120,7 +165,9 @@ public class OpenMeteoWeatherProvider implements WeatherProvider {
             Double pressure = number(hourly.path("surface_pressure"), i);
             Double shortwave = number(hourly.path("shortwave_radiation"), i);
             Double direct = number(hourly.path("direct_radiation"), i);
-            hours.add(new WeatherContext.HourlyWeather(time, air, wind, dir, precip, cloud, pressure, shortwave, direct));
+            Integer weatherCode = integer(hourly.path("weather_code"), i);
+            hours.add(new WeatherContext.HourlyWeather(
+                    time, air, wind, dir, precip, cloud, pressure, shortwave, direct, weatherCode, dateTime.toLocalDate()));
             if (air != null) {
                 airSum += air;
                 airN++;
@@ -152,7 +199,7 @@ public class OpenMeteoWeatherProvider implements WeatherProvider {
                 retrievedAt,
                 "open-meteo",
                 timeZoneId,
-                date,
+                startDate,
                 false,
                 null,
                 airN == 0 ? null : airSum / airN,
@@ -194,6 +241,11 @@ public class OpenMeteoWeatherProvider implements WeatherProvider {
                 List.of(),
                 notes
         );
+    }
+
+    private Integer integer(JsonNode array, int index) {
+        Double value = number(array, index);
+        return value == null ? null : value.intValue();
     }
 
     private Double number(JsonNode array, int index) {

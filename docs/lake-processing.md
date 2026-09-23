@@ -76,7 +76,10 @@ Gated by `app.admin.enabled=true` (dev/test).
 
 | Method | Path |
 | --- | --- |
-| POST | `/api/v1/admin/lakes/{lakeId}/process?pipeline=GIS\|VISION\|HYBRID` (default GIS) |
+| POST | `/api/v1/admin/lakes/{lakeId}/process?pipeline=GIS\|VISION\|HYBRID` (default GIS) — **202** ops job |
+| GET | `/api/v1/admin/lakes/jobs/{jobId}` — poll; reconciles STOPPED ECS tasks |
+| POST | `/api/v1/admin/lakes/{lakeId}/spatial-snapshots?pipeline=&analysisVersion=` — manual snapshot rebuild (**202**) |
+| GET | `/api/v1/admin/lakes/{lakeId}/spatial-snapshots` |
 | POST | `/api/v1/admin/lakes/{lakeId}/benchmark` |
 | GET | `/api/v1/admin/lakes/{lakeId}/benchmark` |
 | GET | `/api/v1/admin/lakes/benchmark-summary?ids=` |
@@ -89,6 +92,8 @@ Gated by `app.admin.enabled=true` (dev/test).
 ```bash
 curl -X POST -H "X-User-Id: 11111111-1111-1111-1111-111111111111" \
   http://localhost:8080/api/v1/admin/lakes/44444444-4444-4444-4444-444444444444/process
+# 202 job; poll GET /api/v1/admin/lakes/jobs/{jobId}. GIS/HYBRID workers await spatial snapshot READY
+# before marking the PROCESS job SUCCEEDED. VISION skips snapshot. Manual rebuild is a separate SNAPSHOT job.
 curl -X POST -H "X-User-Id: 11111111-1111-1111-1111-111111111111" \
   "http://localhost:8080/api/v1/admin/lakes/44444444-4444-4444-4444-444444444444/process?pipeline=HYBRID"
 curl -H "X-User-Id: 11111111-1111-1111-1111-111111111111" \

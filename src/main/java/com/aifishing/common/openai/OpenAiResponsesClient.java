@@ -59,7 +59,7 @@ public class OpenAiResponsesClient {
         Map<String, Object> format = new LinkedHashMap<>();
         format.put("type", "json_schema");
         format.put("name", request.schemaName());
-        format.put("strict", true);
+        format.put("strict", request.strict());
         format.put("schema", request.schema());
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("model", request.model());

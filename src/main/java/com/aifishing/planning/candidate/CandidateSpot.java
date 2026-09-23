@@ -52,6 +52,8 @@ public class CandidateSpot {
     private UUID zoneId;
     private List<VisitPortal> portals = List.of();
     private List<UUID> coverageIds = List.of();
+    private List<UUID> sourceFeatureIds = List.of();
+    private List<FeatureType> evidenceTypes = List.of();
     private List<CandidateSpot> zoneMembers = List.of();
     private UUID visitScopeId;
     private boolean closedLoop;
@@ -339,6 +341,22 @@ public class CandidateSpot {
         this.coverageIds = coverageIds == null ? List.of() : List.copyOf(coverageIds);
     }
 
+    public List<UUID> getSourceFeatureIds() {
+        return sourceFeatureIds;
+    }
+
+    public void setSourceFeatureIds(List<UUID> sourceFeatureIds) {
+        this.sourceFeatureIds = sourceFeatureIds == null ? List.of() : List.copyOf(sourceFeatureIds);
+    }
+
+    public List<FeatureType> getEvidenceTypes() {
+        return evidenceTypes;
+    }
+
+    public void setEvidenceTypes(List<FeatureType> evidenceTypes) {
+        this.evidenceTypes = evidenceTypes == null ? List.of() : List.copyOf(evidenceTypes);
+    }
+
     public List<CandidateSpot> getZoneMembers() {
         return zoneMembers;
     }
@@ -427,5 +445,59 @@ public class CandidateSpot {
             return fishingTargetId;
         }
         return featureId;
+    }
+
+    public CandidateSpot copy() {
+        CandidateSpot copy = new CandidateSpot();
+        copy.setFeatureId(featureId);
+        copy.setType(type);
+        copy.setSourceGeometry(sourceGeometry);
+        copy.setLocation(location);
+        copy.setRepresentativeDepthM(representativeDepthM);
+        copy.setMinDepthM(minDepthM);
+        copy.setMaxDepthM(maxDepthM);
+        copy.setFeatureConfidence(featureConfidence);
+        copy.setStrategyWeight(strategyWeight);
+        copy.setStrategyRationale(strategyRationale);
+        copy.setWindowFrom(windowFrom);
+        copy.setWindowTo(windowTo);
+        copy.setTechniques(techniques);
+        copy.setAnalysisVersion(analysisVersion);
+        copy.setPipeline(pipeline);
+        copy.setWindowSpecific(windowSpecific);
+        copy.setShoreAccessUnverified(shoreAccessUnverified);
+        copy.setSecondaryTargetRestricted(secondaryTargetRestricted);
+        copy.setWindPenalty(windPenalty);
+        copy.setRawOrientationDeg(rawOrientationDeg);
+        copy.setLightPreference(lightPreference);
+        warnings.forEach(copy::addWarning);
+        copy.setTargetKind(targetKind);
+        copy.setTargetGeometry(targetGeometry);
+        copy.setFishingCorridor(fishingCorridor);
+        copy.setEntryPoint(entryPoint);
+        copy.setExitPoint(exitPoint);
+        copy.setSelectedFishingPath(selectedFishingPath);
+        copy.setFishingCorridorWidthM(fishingCorridorWidthM);
+        copy.setFishingTargetId(fishingTargetId);
+        copy.setZoneId(zoneId);
+        copy.setPortals(portals);
+        copy.setCoverageIds(coverageIds);
+        copy.setSourceFeatureIds(sourceFeatureIds);
+        copy.setEvidenceTypes(evidenceTypes);
+        copy.setZoneMembers(zoneMembers);
+        copy.setVisitScopeId(visitScopeId);
+        copy.setClosedLoop(closedLoop);
+        copy.setPathTopology(pathTopology);
+        if (chainageStartM != null) {
+            copy.setChainageStartM(chainageStartM);
+        }
+        if (chainageEndM != null) {
+            copy.setChainageEndM(chainageEndM);
+        }
+        copy.setSplitReason(splitReason);
+        copy.setTraversal(traversal);
+        copy.setStaticSamples(staticSamples);
+        copy.setVisitEnvelope(visitEnvelope);
+        return copy;
     }
 }

@@ -14,6 +14,7 @@ import com.aifishing.lake.processing.extract.FlatExtractor;
 import com.aifishing.lake.processing.repo.LakeFeatureRepository;
 import com.aifishing.lake.processing.repo.LakeFeatureStatusRepository;
 import com.aifishing.seed.DevSeedIds;
+import com.fasterxml.jackson.databind.JsonNode;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
@@ -26,8 +27,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doThrow;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 class LakeProcessingPartialIT extends AbstractIntegrationTest {
 
@@ -63,9 +62,8 @@ class LakeProcessingPartialIT extends AbstractIntegrationTest {
                 boundaryRepository, datasetStatusRepository
         );
 
-        mockMvc.perform(asDev(post("/api/v1/admin/lakes/" + DevSeedIds.LAKE_ID + "/process")))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.processingStatus").value("READY"));
+        JsonNode processed = awaitLakeOpsJobResult(asDev(post("/api/v1/admin/lakes/" + DevSeedIds.LAKE_ID + "/process")));
+        assertThat(processed.path("processingStatus").asText()).isEqualTo("READY");
 
         List<LakeFeature> firstFlats = featureRepository.findByLakeIdAndType(DevSeedIds.LAKE_ID, FeatureType.FLAT);
         assertThat(firstFlats).isNotEmpty();
@@ -82,10 +80,9 @@ class LakeProcessingPartialIT extends AbstractIntegrationTest {
                 .when(flatExtractor)
                 .extract(any(AnalysisContext.class));
 
-        mockMvc.perform(asDev(post("/api/v1/admin/lakes/" + DevSeedIds.LAKE_ID + "/process")))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.processingStatus").value("PARTIAL"))
-                .andExpect(jsonPath("$.failedFeatureTypes[0]").value("FLAT"));
+        JsonNode second = awaitLakeOpsJobResult(asDev(post("/api/v1/admin/lakes/" + DevSeedIds.LAKE_ID + "/process")));
+        assertThat(second.path("processingStatus").asText()).isEqualTo("PARTIAL");
+        assertThat(second.path("failedFeatureTypes").path(0).asText()).isEqualTo("FLAT");
 
         List<LakeFeature> retainedFlats = featureRepository.findByLakeIdAndType(DevSeedIds.LAKE_ID, FeatureType.FLAT);
         assertThat(retainedFlats).extracting(LakeFeature::getId).containsExactlyElementsOf(flatIds);

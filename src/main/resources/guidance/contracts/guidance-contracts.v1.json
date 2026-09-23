@@ -1,0 +1,1466 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aifishing.local/guidance/contracts/guidance-contracts.v1.json",
+  "title": "GuidanceContractsV1",
+  "description": "Canonical fishing-agent contracts. Persisted envelopes require schemaVersion. HTTP hints may omit it.",
+  "$defs": {
+    "SchemaVersion": {
+      "const": "guidance.contracts.v1"
+    },
+    "Uuid": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "InstantUtc": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]+)?Z$"
+    },
+    "LatitudeWgs84": {
+      "type": "number",
+      "minimum": -90,
+      "maximum": 90
+    },
+    "LongitudeWgs84": {
+      "type": "number",
+      "minimum": -180,
+      "maximum": 180
+    },
+    "UnitInterval": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "SessionEventType": {
+      "type": "string",
+      "enum": [
+        "SESSION_STARTED",
+        "GPS_UPDATED",
+        "GPS_ACCURACY_DEGRADED",
+        "WEATHER_UPDATED",
+        "WAYPOINT_ENTERED",
+        "WAYPOINT_LEFT",
+        "LURE_CHANGED",
+        "DEPTH_CHANGED",
+        "RETRIEVE_CHANGED",
+        "ADVICE_CREATED",
+        "ADVICE_ACCEPTED",
+        "ADVICE_REJECTED",
+        "ADVICE_ACKNOWLEDGED",
+        "USER_MOVED",
+        "BITE",
+        "FISH_ON",
+        "CATCH_CREATED",
+        "NO_BITE",
+        "PLAN_REPLANNED",
+        "SAFETY_ALERT",
+        "SESSION_PAUSED",
+        "SESSION_RESUMED",
+        "SESSION_COMPLETED",
+        "USER_STARTED_AD_HOC_FISHING",
+        "USER_ENDED_AD_HOC_FISHING"
+      ]
+    },
+    "GuidanceTrigger": {
+      "type": "string",
+      "enum": [
+        "USER_REQUEST",
+        "NO_BITE_THRESHOLD",
+        "FISH_ON",
+        "REPEATED_BITE_PATTERN",
+        "WAYPOINT_REACHED",
+        "PLAN_STEP_COMPLETED",
+        "SIGNIFICANT_WEATHER_CHANGE",
+        "SIGNIFICANT_LOCATION_CHANGE",
+        "CONSECUTIVE_FAILURE",
+        "SAFETY_STATE_CHANGED",
+        "ROUTE_DEVIATION",
+        "RETURN_RISK_CHANGED",
+        "USER_STARTED_AD_HOC_FISHING",
+        "USER_ENDED_AD_HOC_FISHING"
+      ]
+    },
+    "FishingActivityState": {
+      "type": "string",
+      "enum": ["TRANSIT", "FISHING", "PAUSED", "UNKNOWN"]
+    },
+    "ActivityStateSource": {
+      "type": "string",
+      "enum": ["OVERRIDE", "SESSION_PAUSE", "EFFORT_SEGMENT", "PROGRESS", "INFERRED", "USER_AD_HOC", "UNKNOWN"]
+    },
+    "GuidanceAction": {
+      "type": "string",
+      "enum": ["STAY", "MOVE", "CHANGE_LURE", "CHANGE_DEPTH", "CHANGE_RETRIEVE", "RETURN"]
+    },
+    "LureFamily": {
+      "type": "string",
+      "enum": [
+        "PADDLETAIL",
+        "MINNOW_SOFT_PLASTIC",
+        "GRUB",
+        "TUBE",
+        "NED_RIG",
+        "DROP_SHOT_BAIT",
+        "JIG",
+        "JERKBAIT",
+        "CRANKBAIT",
+        "LIPLESS_CRANKBAIT",
+        "SPINNERBAIT",
+        "CHATTERBAIT",
+        "SPOON",
+        "INLINE_SPINNER",
+        "TOPWATER",
+        "FROG",
+        "TEXAS_RIG",
+        "CAROLINA_RIG",
+        "BUZZBAIT",
+        "OTHER"
+      ]
+    },
+    "PresentationTechnique": {
+      "type": "string",
+      "enum": [
+        "STEADY_RETRIEVE",
+        "TWITCH_PAUSE",
+        "STOP_AND_GO",
+        "WALK_THE_DOG",
+        "POP_AND_PAUSE",
+        "BUZZ",
+        "LIFT_DROP",
+        "HOP_ALONG_BOTTOM",
+        "DRAG_AND_SHAKE",
+        "SWIM_NEAR_BOTTOM",
+        "YO_YO",
+        "DEAD_STICK",
+        "SLOW_ROLL",
+        "BURN",
+        "VERTICAL_JIG",
+        "CAST_ACROSS_CONTOUR",
+        "OTHER"
+      ]
+    },
+    "RetrieveStyle": {
+      "type": "string",
+      "enum": ["SLOW", "MODERATE", "FAST", "STOP_AND_GO", "TWITCH", "DEAD_STICK", "OTHER"]
+    },
+    "ToolName": {
+      "type": "string",
+      "enum": [
+        "get_nearby_waypoints",
+        "get_waypoint_structure",
+        "get_live_waypoint_activity",
+        "get_historical_performance",
+        "get_fishing_knowledge",
+        "get_alternative_route"
+      ]
+    },
+    "ToolResultStatus": {
+      "type": "string",
+      "enum": ["OK", "ERROR", "INVALID_DATA", "UNKNOWN"]
+    },
+    "FeedbackStatus": {
+      "type": "string",
+      "enum": ["ACCEPTED", "REJECTED", "PARTIALLY_FOLLOWED", "ACKNOWLEDGED"]
+    },
+    "ReplanScope": {
+      "type": "string",
+      "enum": ["TACTICAL_LOCAL", "REGIONAL", "GLOBAL", "SAFETY_OVERRIDE"]
+    },
+    "EventSource": {
+      "type": "string",
+      "enum": ["CLIENT", "SERVER", "DERIVED"]
+    },
+    "AgentRunStatus": {
+      "type": "string",
+      "enum": ["RUNNING", "COMPLETED", "FALLBACK", "FAILED", "TIMEOUT"]
+    },
+    "DecisionValidationCheck": {
+      "type": "string",
+      "enum": [
+        "ACTION_INCOMPATIBLE",
+        "HORIZON_COMMIT_INVALID",
+        "WAYPOINT_NOT_FOUND",
+        "WAYPOINT_NOT_NAVIGABLE",
+        "WAYPOINT_ID_INCONSISTENT",
+        "WAYPOINT_NOT_IN_SESSION",
+        "WAYPOINT_NOT_ON_LAKE",
+        "GPS_ACCURACY_UNACCEPTABLE",
+        "INSUFFICIENT_REMAINING_RANGE",
+        "INSUFFICIENT_RETURN_RESERVE",
+        "INSUFFICIENT_REMAINING_TIME",
+        "WEATHER_UNSAFE",
+        "NO_FISHING_ZONE",
+        "SCHEMA_INVALID",
+        "REQUIRED_DATA_MISSING",
+        "OPPORTUNITY_IN_COOLDOWN",
+        "MOVE_OSCILLATION"
+      ]
+    },
+    "PlanCreatedBy": {
+      "type": "string",
+      "enum": ["AGENT", "SAFETY", "USER"]
+    },
+    "CompassDirection": {
+      "type": "string",
+      "enum": ["N", "NE", "E", "SE", "S", "SW", "W", "NW"]
+    },
+    "WeatherCondition": {
+      "type": "string",
+      "enum": ["CLEAR", "CLOUDY", "RAIN", "THUNDERSTORM", "FOG", "UNKNOWN"]
+    },
+    "SafetyVerdictLevel": {
+      "type": "string",
+      "enum": ["OK", "WARNING", "BLOCK"]
+    },
+    "SafetyConstraintCode": {
+      "type": "string",
+      "enum": [
+        "WIND_UNSAFE",
+        "THUNDERSTORM",
+        "LIGHTNING",
+        "RANGE_INSUFFICIENT",
+        "RETURN_RESERVE_INSUFFICIENT",
+        "NO_FISHING_ZONE",
+        "GPS_ACCURACY_UNACCEPTABLE"
+      ]
+    },
+    "ReflectionClaimKind": {
+      "type": "string",
+      "enum": ["OBSERVED_FACT", "SESSION_HYPOTHESIS", "USER_PREFERENCE", "UNCERTAIN_INFERENCE"]
+    },
+    "ReflectionCauseKind": {
+      "type": "string",
+      "enum": ["STRATEGY_FAILURE", "USER_PREFERENCE_CONFLICT", "EVIDENCE_CONTRADICTION"]
+    },
+    "GuidanceRejectReason": {
+      "type": "string",
+      "enum": ["TOO_FAR", "TOO_ROUGH", "WANT_TO_STAY", "DO_NOT_WANT_LURE_CHANGE", "OTHER", "UNSPECIFIED"]
+    },
+    "SeasonBucket": {
+      "type": "string",
+      "enum": ["SPRING", "SUMMER", "FALL", "WINTER"]
+    },
+    "TimeBucket": {
+      "type": "string",
+      "enum": ["DAWN", "MORNING", "MIDDAY", "AFTERNOON", "DUSK", "NIGHT"]
+    },
+    "WindBucket": {
+      "type": "string",
+      "description": "Wind speed bucket. Independent of CompassDirection.",
+      "enum": ["CALM", "MODERATE", "STRONG"]
+    },
+    "WindDirectionBucket": {
+      "type": "string",
+      "description": "Empirical wind-direction grain. VARIABLE is not a CompassDirection.",
+      "enum": ["N", "NE", "E", "SE", "S", "SW", "W", "NW", "VARIABLE"]
+    },
+    "SemanticMemoryKind": {
+      "type": "string",
+      "enum": ["USER_PREFERENCE_NOTE", "SESSION_INSIGHT", "FREE_TEXT_FEEDBACK", "STYLE_NOTE"]
+    },
+    "LiveWaypointPressure": {
+      "type": "string",
+      "enum": ["LOW", "MODERATE", "HIGH", "UNKNOWN"]
+    },
+    "OutcomeKind": {
+      "type": "string",
+      "enum": ["BITE", "FISH_ON", "CATCH_LANDED", "CATCH_LOST", "NO_BITE", "NONE"]
+    },
+    "AttributionDimension": {
+      "type": "string",
+      "enum": ["LOCATION", "LURE", "DEPTH", "RETRIEVE"]
+    },
+    "RecommendationRole": {
+      "type": "string",
+      "enum": ["PRIMARY", "SECONDARY"]
+    },
+    "AttributionWindowKind": {
+      "type": "string",
+      "enum": ["LURE", "RETRIEVE", "DEPTH", "MOVE", "STAY"]
+    },
+    "LearningJobType": {
+      "type": "string",
+      "enum": [
+        "ATTRIBUTE_OUTCOME",
+        "AGGREGATE_EMPIRICAL",
+        "SESSION_SUMMARY",
+        "REFLECTION_EVAL",
+        "PREFERENCE_UPDATE",
+        "ONLINE_METRICS_ROLLUP"
+      ]
+    },
+    "FishSpecies": {
+      "type": "string",
+      "enum": [
+        "SMALLMOUTH_BASS",
+        "LARGEMOUTH_BASS",
+        "WALLEYE",
+        "NORTHERN_PIKE",
+        "MUSKELLUNGE",
+        "LAKE_TROUT",
+        "RAINBOW_TROUT",
+        "BROOK_TROUT",
+        "YELLOW_PERCH",
+        "CRAPPIE",
+        "PANFISH",
+        "OTHER"
+      ]
+    },
+    "FishingSessionStatus": {
+      "type": "string",
+      "enum": ["ACTIVE", "PAUSED", "COMPLETED", "CANCELLED"]
+    },
+    "BoatType": {
+      "type": "string",
+      "enum": ["FISHING_BOAT", "KAYAK", "CANOE", "PONTOON", "INFLATABLE", "OTHER"]
+    },
+    "PropulsionType": {
+      "type": "string",
+      "enum": ["NONE", "PADDLE", "PEDAL", "ELECTRIC_TROLLING", "ELECTRIC_OUTBOARD", "GAS_OUTBOARD"]
+    },
+    "FeatureType": {
+      "type": "string",
+      "enum": ["HUMP", "DROP_OFF", "FLAT", "POINT", "BASIN", "ISLAND_EDGE"]
+    },
+    "TechniqueType": {
+      "type": "string",
+      "enum": [
+        "NED_RIG",
+        "DROP_SHOT",
+        "JERKBAIT",
+        "JIG",
+        "TUBE",
+        "SWIMBAIT",
+        "CRANKBAIT",
+        "SPINNERBAIT",
+        "TOPWATER",
+        "TEXAS_RIG",
+        "LIVE_BAIT",
+        "TROLLING",
+        "OTHER"
+      ]
+    },
+    "JsonObject": {
+      "type": "object",
+      "propertyNames": {
+        "not": {
+          "enum": ["stackTrace", "stack_trace", "targetWaypointId", "confidence", "depth"]
+        }
+      }
+    },
+    "HorizonStep": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["step", "type", "committed"],
+      "properties": {
+        "step": { "type": "integer", "minimum": 1 },
+        "type": { "$ref": "#/$defs/GuidanceAction" },
+        "tripWaypointId": { "$ref": "#/$defs/Uuid" },
+        "durationMinutes": { "type": "integer", "minimum": 0 },
+        "committed": { "type": "boolean" }
+      }
+    },
+    "OriginalPlanStep": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Immutable original trip-plan stop. Plan-step and physical ids do not change; progressStatus is a session overlay rebuilt each snapshot.",
+      "required": ["sequence", "tripWaypointId"],
+      "properties": {
+        "sequence": { "type": "integer", "minimum": 1 },
+        "tripWaypointId": { "$ref": "#/$defs/Uuid" },
+        "physicalZoneId": { "$ref": "#/$defs/Uuid" },
+        "fishingTargetId": { "$ref": "#/$defs/Uuid" },
+        "lakeFeatureId": { "$ref": "#/$defs/Uuid" },
+        "packageMemberIds": { "type": "array", "items": { "$ref": "#/$defs/Uuid" } },
+        "progressStatus": {
+          "type": "string",
+          "enum": ["UPCOMING", "NAVIGATING", "ARRIVED", "FISHING", "COMPLETED", "SKIPPED"],
+          "description": "Session waypoint progress names as strings."
+        }
+      }
+    },
+    "SessionEvent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schemaVersion", "type", "occurredAt", "source", "idempotencyKey", "payload"],
+      "properties": {
+        "schemaVersion": { "$ref": "#/$defs/SchemaVersion" },
+        "type": { "$ref": "#/$defs/SessionEventType" },
+        "occurredAt": { "$ref": "#/$defs/InstantUtc" },
+        "source": { "$ref": "#/$defs/EventSource" },
+        "idempotencyKey": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "payload": { "$ref": "#/$defs/JsonObject" },
+        "fishInteractionId": { "$ref": "#/$defs/Uuid" }
+      }
+    },
+    "TriggerRoutingDecision": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["primary", "related", "reasonCodes"],
+      "description": "Router/evaluator enqueue decision. Empty Optional means do not write outbox. reasonCodes are diagnostic codes and must not encode GuidanceAction values.",
+      "properties": {
+        "primary": { "$ref": "#/$defs/GuidanceTrigger" },
+        "related": { "type": "array", "items": { "$ref": "#/$defs/GuidanceTrigger" } },
+        "reasonCodes": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1, "maxLength": 128 }
+        }
+      }
+    },
+    "SessionStateSlice": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sessionId", "userId", "status", "startedAt"],
+      "properties": {
+        "sessionId": { "$ref": "#/$defs/Uuid" },
+        "userId": { "$ref": "#/$defs/Uuid" },
+        "status": { "$ref": "#/$defs/FishingSessionStatus" },
+        "startedAt": { "$ref": "#/$defs/InstantUtc" },
+        "targetSpecies": { "$ref": "#/$defs/FishSpecies" },
+        "remainingTimeMinutes": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "PositionStateSlice": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["latitudeWgs84", "longitudeWgs84"],
+      "properties": {
+        "latitudeWgs84": { "$ref": "#/$defs/LatitudeWgs84" },
+        "longitudeWgs84": { "$ref": "#/$defs/LongitudeWgs84" },
+        "gpsAccuracyM": { "type": "number", "minimum": 0 },
+        "speedMps": { "type": "number", "minimum": 0 },
+        "headingDegrees": { "type": "number", "minimum": 0, "maximum": 360 }
+      }
+    },
+    "BoatStateSlice": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "boatType": { "$ref": "#/$defs/BoatType" },
+        "propulsionType": { "$ref": "#/$defs/PropulsionType" },
+        "cruiseSpeedMps": { "type": "number", "minimum": 0 },
+        "remainingRangeMeters": { "type": "number", "minimum": 0 },
+        "returnReserveMeters": { "type": "number", "minimum": 0 }
+      }
+    },
+    "FishingStateSlice": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "currentTripWaypointId": { "$ref": "#/$defs/Uuid" },
+        "currentSessionWaypointProgressId": { "$ref": "#/$defs/Uuid" },
+        "structureType": { "$ref": "#/$defs/FeatureType" },
+        "depthMinM": { "type": "number" },
+        "depthMaxM": { "type": "number" },
+        "lureFamily": { "$ref": "#/$defs/LureFamily" },
+        "presentation": { "$ref": "#/$defs/PresentationTechnique" },
+        "retrieveStyle": { "$ref": "#/$defs/RetrieveStyle" },
+        "timeAtWaypointMinutes": { "type": "integer", "minimum": 0 },
+        "activityState": { "$ref": "#/$defs/FishingActivityState" },
+        "activityStateSince": { "$ref": "#/$defs/InstantUtc" },
+        "activityStateSource": { "$ref": "#/$defs/ActivityStateSource" },
+        "activeFishingEffortMinutes": { "type": "integer", "minimum": 0 },
+        "noBiteMinutes": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Effective FISHING-window effort minutes since last BITE or FISH_ON. Excludes TRANSIT, PAUSED, and UNKNOWN."
+        },
+        "adHocFishingStopId": {
+          "$ref": "#/$defs/Uuid",
+          "description": "Open USER_AD_HOC stop id. Absent when not fishing ad-hoc."
+        },
+        "adHocStartedAt": {
+          "$ref": "#/$defs/InstantUtc",
+          "description": "When the open ad-hoc stop started. Absent when not fishing ad-hoc."
+        },
+        "fishingTargetId": {
+          "$ref": "#/$defs/Uuid",
+          "description": "Best-effort GIS match on the open ad-hoc stop. Absent when unmatched."
+        },
+        "physicalZoneId": {
+          "$ref": "#/$defs/Uuid",
+          "description": "Best-effort GIS zone match on the open ad-hoc stop. Absent when unmatched."
+        },
+        "lakeFeatureId": {
+          "$ref": "#/$defs/Uuid",
+          "description": "Best-effort GIS lake-feature match on the open ad-hoc stop. Absent when unmatched."
+        }
+      }
+    },
+    "EnvironmentStateSlice": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "weather": { "$ref": "#/$defs/WeatherCondition" },
+        "windSpeedKph": { "type": "number", "minimum": 0 },
+        "windDirection": { "$ref": "#/$defs/CompassDirection" },
+        "pressureHpa": { "type": "number" },
+        "temperatureC": { "type": "number" },
+        "weatherObservedAt": { "$ref": "#/$defs/InstantUtc" },
+        "weatherAgeMinutes": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "RecentStateSlice": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["moveIds", "lureChangeIds", "catchEventIds", "adviceIds", "rejectedAdviceIds", "summaries"],
+      "properties": {
+        "moveIds": { "type": "array", "items": { "$ref": "#/$defs/Uuid" } },
+        "lureChangeIds": { "type": "array", "items": { "$ref": "#/$defs/Uuid" } },
+        "catchEventIds": { "type": "array", "items": { "$ref": "#/$defs/Uuid" } },
+        "adviceIds": { "type": "array", "items": { "$ref": "#/$defs/Uuid" } },
+        "rejectedAdviceIds": { "type": "array", "items": { "$ref": "#/$defs/Uuid" } },
+        "summaries": { "type": "array", "items": { "type": "string", "maxLength": 240 } }
+      }
+    },
+    "PerformanceStateSlice": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["catchesThisSession"],
+      "properties": {
+        "catchesThisSession": { "type": "integer", "minimum": 0 },
+        "sessionCpue": { "type": "number", "minimum": 0 },
+        "timeSinceLastCatchMinutes": { "type": "integer", "minimum": 0 },
+        "currentWaypointCatchCount": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "PackageCooldown": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Package-member cooldown after a fished visit leave. POINT/PATH: atomic identity of that visit. ZONE: that visit's packageMemberIds. Not actual-member consumption; disjoint packages on the same physicalZoneId stay eligible.",
+      "required": ["packageMemberIds", "cooldownUntil"],
+      "properties": {
+        "packageMemberIds": { "type": "array", "items": { "$ref": "#/$defs/Uuid" } },
+        "cooldownUntil": { "$ref": "#/$defs/InstantUtc" },
+        "physicalZoneId": { "$ref": "#/$defs/Uuid" }
+      }
+    },
+    "OpportunityRevisitSlice": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Bounded package-member cooldown slice (cap 8, newest last; Java truncates). Not an actual-member consumption ledger. Missing/null deserializes empty. lastMoveTargetTripWaypointIds are recent delivered MOVE targets for MOVE_OSCILLATION.",
+      "properties": {
+        "packageCooldowns": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/PackageCooldown" }
+        },
+        "lastMoveTargetTripWaypointIds": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/Uuid" }
+        }
+      }
+    },
+    "PlanStateSlice": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "originalTripPlanId": { "$ref": "#/$defs/Uuid" },
+        "currentGuidancePlanVersion": { "type": "integer", "minimum": 1 },
+        "currentStep": { "type": "integer", "minimum": 1 },
+        "shortHorizonSteps": { "type": "array", "items": { "$ref": "#/$defs/HorizonStep" } },
+        "originalPlanSteps": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/OriginalPlanStep" },
+          "description": "Full ordered original trip waypoints. Not replaced when a GuidancePlanVersion exists. Not required on old replay JSON."
+        },
+        "activeGuidanceTargetTripWaypointId": {
+          "$ref": "#/$defs/Uuid",
+          "description": "Latest committed guidance MOVE target. Null/missing deserializes absent (STAY, none, or degraded). Backend arrival/effort/catch and RN must follow the same id; fallback is the original NAVIGATING waypoint."
+        }
+      }
+    },
+    "FishingSessionState": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schemaVersion", "session", "position", "boat", "fishing", "environment", "recent", "performance", "plan"],
+      "properties": {
+        "schemaVersion": { "$ref": "#/$defs/SchemaVersion" },
+        "session": { "$ref": "#/$defs/SessionStateSlice" },
+        "position": { "$ref": "#/$defs/PositionStateSlice" },
+        "boat": { "$ref": "#/$defs/BoatStateSlice" },
+        "fishing": { "$ref": "#/$defs/FishingStateSlice" },
+        "environment": { "$ref": "#/$defs/EnvironmentStateSlice" },
+        "recent": { "$ref": "#/$defs/RecentStateSlice" },
+        "performance": { "$ref": "#/$defs/PerformanceStateSlice" },
+        "plan": { "$ref": "#/$defs/PlanStateSlice" },
+        "opportunityRevisit": { "$ref": "#/$defs/OpportunityRevisitSlice" }
+      }
+    },
+    "CurrentSituation": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "tripWaypointId": { "$ref": "#/$defs/Uuid" },
+        "sessionWaypointProgressId": { "$ref": "#/$defs/Uuid" },
+        "structure": { "$ref": "#/$defs/FeatureType" },
+        "timeAtWaypointMinutes": { "type": "integer", "minimum": 0 },
+        "noBiteMinutes": { "type": "integer", "minimum": 0 },
+        "lureFamily": { "$ref": "#/$defs/LureFamily" },
+        "depthMinM": { "type": "number" },
+        "depthMaxM": { "type": "number" },
+        "activityState": { "$ref": "#/$defs/FishingActivityState" },
+        "activityStateSource": { "$ref": "#/$defs/ActivityStateSource" },
+        "adHocFishingStopId": {
+          "$ref": "#/$defs/Uuid",
+          "description": "Open USER_AD_HOC stop id. Absent when not fishing ad-hoc."
+        },
+        "adHocStartedAt": {
+          "$ref": "#/$defs/InstantUtc",
+          "description": "When the open ad-hoc stop started. Absent when not fishing ad-hoc."
+        },
+        "fishingTargetId": {
+          "$ref": "#/$defs/Uuid",
+          "description": "Best-effort GIS match on the open ad-hoc stop. Absent when unmatched."
+        },
+        "physicalZoneId": {
+          "$ref": "#/$defs/Uuid",
+          "description": "Best-effort GIS zone match on the open ad-hoc stop. Absent when unmatched."
+        },
+        "lakeFeatureId": {
+          "$ref": "#/$defs/Uuid",
+          "description": "Best-effort GIS lake-feature match on the open ad-hoc stop. Absent when unmatched."
+        }
+      }
+    },
+    "ContextWeather": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "windDirection": { "$ref": "#/$defs/CompassDirection" },
+        "windSpeedKph": { "type": "number", "minimum": 0 },
+        "ageMinutes": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "FishingAgentContext": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schemaVersion", "trigger", "currentSituation", "weather", "recentHistory"],
+      "properties": {
+        "schemaVersion": { "$ref": "#/$defs/SchemaVersion" },
+        "trigger": { "$ref": "#/$defs/GuidanceTrigger" },
+        "targetSpecies": { "$ref": "#/$defs/FishSpecies" },
+        "currentSituation": { "$ref": "#/$defs/CurrentSituation" },
+        "weather": { "$ref": "#/$defs/ContextWeather" },
+        "recentHistory": { "type": "array", "items": { "type": "string", "maxLength": 240 } },
+        "userPreferences": { "$ref": "#/$defs/UserFishingPreferences" },
+        "inferredPreferences": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/InferredUserPreference" }
+        },
+        "retrievedMemoryIds": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+        "originalPlanSteps": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/OriginalPlanStep" },
+          "description": "Unclipped copy of the original trip-plan prior. Survives shortHorizon replacement in model input."
+        }
+      }
+    },
+    "CandidateDecision": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "decisionId",
+        "primaryAction",
+        "reevaluateAfterMinutes",
+        "reasonCodes",
+        "shortExplanation",
+        "proposedHorizon",
+        "modelConfidence"
+      ],
+      "properties": {
+        "schemaVersion": { "$ref": "#/$defs/SchemaVersion" },
+        "decisionId": { "$ref": "#/$defs/Uuid" },
+        "primaryAction": { "$ref": "#/$defs/GuidanceAction" },
+        "secondaryAction": { "$ref": "#/$defs/GuidanceAction" },
+        "targetTripWaypointId": { "$ref": "#/$defs/Uuid" },
+        "suggestedLure": { "$ref": "#/$defs/LureFamily" },
+        "suggestedPresentation": { "$ref": "#/$defs/PresentationTechnique" },
+        "depthMinM": { "type": "number" },
+        "depthMaxM": { "type": "number" },
+        "retrieveStyle": { "$ref": "#/$defs/RetrieveStyle" },
+        "reevaluateAfterMinutes": { "type": "integer", "minimum": 0 },
+        "reasonCodes": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+        "shortExplanation": { "type": "string", "minLength": 1, "maxLength": 500 },
+        "proposedHorizon": { "type": "array", "items": { "$ref": "#/$defs/HorizonStep" } },
+        "modelConfidence": { "$ref": "#/$defs/UnitInterval" }
+      }
+    },
+    "DeliveredDecision": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "decisionId",
+        "primaryAction",
+        "reevaluateAfterMinutes",
+        "reasonCodes",
+        "shortExplanation",
+        "proposedHorizon",
+        "fallbackUsed"
+      ],
+      "properties": {
+        "schemaVersion": { "$ref": "#/$defs/SchemaVersion" },
+        "decisionId": { "$ref": "#/$defs/Uuid" },
+        "primaryAction": { "$ref": "#/$defs/GuidanceAction" },
+        "secondaryAction": { "$ref": "#/$defs/GuidanceAction" },
+        "targetTripWaypointId": { "$ref": "#/$defs/Uuid" },
+        "suggestedLure": { "$ref": "#/$defs/LureFamily" },
+        "suggestedPresentation": { "$ref": "#/$defs/PresentationTechnique" },
+        "depthMinM": { "type": "number" },
+        "depthMaxM": { "type": "number" },
+        "retrieveStyle": { "$ref": "#/$defs/RetrieveStyle" },
+        "reevaluateAfterMinutes": { "type": "integer", "minimum": 0 },
+        "reasonCodes": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+        "shortExplanation": { "type": "string", "minLength": 1, "maxLength": 500 },
+        "proposedHorizon": { "type": "array", "items": { "$ref": "#/$defs/HorizonStep" } },
+        "fallbackUsed": { "type": "boolean" },
+        "fallbackReason": { "type": "string", "maxLength": 500 },
+        "systemConfidence": { "$ref": "#/$defs/UnitInterval" }
+      }
+    },
+    "ValidationIssue": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["check", "message"],
+      "properties": {
+        "check": { "$ref": "#/$defs/DecisionValidationCheck" },
+        "message": { "type": "string", "minLength": 1 }
+      }
+    },
+    "DecisionValidationResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schemaVersion", "valid", "issues"],
+      "properties": {
+        "schemaVersion": { "$ref": "#/$defs/SchemaVersion" },
+        "valid": { "type": "boolean" },
+        "issues": { "type": "array", "items": { "$ref": "#/$defs/ValidationIssue" } }
+      }
+    },
+    "SafetyVerdict": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schemaVersion", "level", "reasons", "constraintCodes", "allowedActions"],
+      "properties": {
+        "schemaVersion": { "$ref": "#/$defs/SchemaVersion" },
+        "level": { "$ref": "#/$defs/SafetyVerdictLevel" },
+        "reasons": { "type": "array", "items": { "type": "string" } },
+        "constraintCodes": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/SafetyConstraintCode" }
+        },
+        "allowedActions": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/GuidanceAction" }
+        },
+        "prescribedAction": {
+          "anyOf": [
+            { "$ref": "#/$defs/GuidanceAction" },
+            { "type": "null" }
+          ]
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "level": { "const": "BLOCK" } },
+            "required": ["level"]
+          },
+          "then": {
+            "required": ["prescribedAction"],
+            "properties": {
+              "prescribedAction": { "$ref": "#/$defs/GuidanceAction" }
+            }
+          },
+          "else": {
+            "properties": {
+              "prescribedAction": { "type": "null" }
+            }
+          }
+        }
+      ]
+    },
+    "GetNearbyWaypointsParams": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["latitudeWgs84", "longitudeWgs84", "radiusMeters", "targetSpecies"],
+      "properties": {
+        "latitudeWgs84": { "$ref": "#/$defs/LatitudeWgs84" },
+        "longitudeWgs84": { "$ref": "#/$defs/LongitudeWgs84" },
+        "radiusMeters": { "type": "integer", "minimum": 50, "maximum": 5000 },
+        "targetSpecies": { "$ref": "#/$defs/FishSpecies" }
+      }
+    },
+    "GetWaypointStructureParams": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["tripWaypointId"],
+      "properties": {
+        "tripWaypointId": { "$ref": "#/$defs/Uuid" }
+      }
+    },
+    "GetLiveWaypointActivityParams": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["tripWaypointId"],
+      "properties": {
+        "tripWaypointId": { "$ref": "#/$defs/Uuid" },
+        "radiusMeters": { "type": "integer", "minimum": 50, "maximum": 5000 }
+      }
+    },
+    "GetHistoricalPerformanceParams": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["lakeId", "targetSpecies"],
+      "properties": {
+        "lakeId": { "$ref": "#/$defs/Uuid" },
+        "tripWaypointId": { "$ref": "#/$defs/Uuid" },
+        "targetSpecies": { "$ref": "#/$defs/FishSpecies" },
+        "lureFamily": { "$ref": "#/$defs/LureFamily" }
+      }
+    },
+    "GetFishingKnowledgeParams": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["query"],
+      "properties": {
+        "query": { "type": "string", "minLength": 1, "maxLength": 500 },
+        "targetSpecies": { "$ref": "#/$defs/FishSpecies" }
+      }
+    },
+    "GetAlternativeRouteParams": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["fromLatitudeWgs84", "fromLongitudeWgs84", "toTripWaypointId"],
+      "properties": {
+        "fromLatitudeWgs84": { "$ref": "#/$defs/LatitudeWgs84" },
+        "fromLongitudeWgs84": { "$ref": "#/$defs/LongitudeWgs84" },
+        "toTripWaypointId": { "$ref": "#/$defs/Uuid" },
+        "remainingRangeMeters": { "type": "number", "minimum": 0 }
+      }
+    },
+    "ToolRequestEnvelope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schemaVersion", "toolName", "arguments", "requestedAt"],
+      "properties": {
+        "schemaVersion": { "$ref": "#/$defs/SchemaVersion" },
+        "toolName": { "$ref": "#/$defs/ToolName" },
+        "arguments": { "$ref": "#/$defs/JsonObject" },
+        "requestedAt": { "$ref": "#/$defs/InstantUtc" }
+      }
+    },
+    "ToolResultEnvelope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schemaVersion", "status", "observedAt", "source"],
+      "properties": {
+        "schemaVersion": { "$ref": "#/$defs/SchemaVersion" },
+        "status": { "$ref": "#/$defs/ToolResultStatus" },
+        "observedAt": { "$ref": "#/$defs/InstantUtc" },
+        "source": { "type": "string", "minLength": 1 },
+        "data": { "$ref": "#/$defs/JsonObject" },
+        "errorType": { "type": "string" },
+        "retryable": { "type": "boolean" },
+        "field": { "type": "string" }
+      }
+    },
+    "ToolCallRecord": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schemaVersion", "request", "result", "observedAt"],
+      "properties": {
+        "schemaVersion": { "$ref": "#/$defs/SchemaVersion" },
+        "request": { "$ref": "#/$defs/ToolRequestEnvelope" },
+        "result": { "$ref": "#/$defs/ToolResultEnvelope" },
+        "latencyMs": { "type": "integer", "minimum": 0 },
+        "observedAt": { "$ref": "#/$defs/InstantUtc" }
+      }
+    },
+    "AgentRunRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schemaVersion", "runId", "sessionId", "trigger", "state", "context"],
+      "properties": {
+        "schemaVersion": { "$ref": "#/$defs/SchemaVersion" },
+        "runId": { "$ref": "#/$defs/Uuid" },
+        "sessionId": { "$ref": "#/$defs/Uuid" },
+        "trigger": { "$ref": "#/$defs/GuidanceTrigger" },
+        "state": { "$ref": "#/$defs/FishingSessionState" },
+        "context": { "$ref": "#/$defs/FishingAgentContext" },
+        "memoryRefIds": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+        "modelProvider": { "type": "string" },
+        "modelName": { "type": "string" },
+        "modelVersion": { "type": "string" },
+        "promptVersion": { "type": "string" },
+        "toolSchemaVersion": { "type": "string" },
+        "contextVersion": { "type": "string" },
+        "guidancePlanVersion": { "type": "integer", "minimum": 1 },
+        "decisionId": { "$ref": "#/$defs/Uuid" },
+        "traceId": { "type": "string" }
+      }
+    },
+    "AgentRunResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schemaVersion", "runId", "status", "request", "toolCalls", "validation", "delivered"],
+      "properties": {
+        "schemaVersion": { "$ref": "#/$defs/SchemaVersion" },
+        "runId": { "$ref": "#/$defs/Uuid" },
+        "status": { "$ref": "#/$defs/AgentRunStatus" },
+        "request": { "$ref": "#/$defs/AgentRunRequest" },
+        "toolCalls": { "type": "array", "items": { "$ref": "#/$defs/ToolCallRecord" } },
+        "candidate": {
+          "anyOf": [
+            { "$ref": "#/$defs/CandidateDecision" },
+            { "type": "null" }
+          ]
+        },
+        "validation": { "$ref": "#/$defs/DecisionValidationResult" },
+        "delivered": { "$ref": "#/$defs/DeliveredDecision" }
+      }
+    },
+    "GuidanceClientHints": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Non-authoritative client hints. Server state wins.",
+      "properties": {
+        "latitudeWgs84": { "$ref": "#/$defs/LatitudeWgs84" },
+        "longitudeWgs84": { "$ref": "#/$defs/LongitudeWgs84" },
+        "gpsAccuracyM": { "type": "number", "minimum": 0 },
+        "headingDegrees": { "type": "number", "minimum": 0, "maximum": 360 },
+        "speedMps": { "type": "number", "minimum": 0 }
+      }
+    },
+    "GuidanceDecisionRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["trigger"],
+      "properties": {
+        "trigger": { "$ref": "#/$defs/GuidanceTrigger" },
+        "userNote": { "type": "string", "maxLength": 2000 },
+        "clientHints": { "$ref": "#/$defs/GuidanceClientHints" }
+      }
+    },
+    "GuidanceCurrentResponse": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["runId", "decision"],
+      "properties": {
+        "runId": { "$ref": "#/$defs/Uuid" },
+        "decision": { "$ref": "#/$defs/DeliveredDecision" }
+      }
+    },
+    "GuidanceFeedbackRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status"],
+      "properties": {
+        "status": { "$ref": "#/$defs/FeedbackStatus" },
+        "rejectReason": { "$ref": "#/$defs/GuidanceRejectReason" },
+        "note": { "type": "string", "maxLength": 2000 }
+      }
+    },
+    "WeatherSnapshot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schemaVersion", "observedAt"],
+      "properties": {
+        "schemaVersion": { "$ref": "#/$defs/SchemaVersion" },
+        "observedAt": { "$ref": "#/$defs/InstantUtc" },
+        "weather": { "$ref": "#/$defs/WeatherCondition" },
+        "windSpeedKph": { "type": "number", "minimum": 0 },
+        "windDirection": { "$ref": "#/$defs/CompassDirection" },
+        "temperatureC": { "type": "number" },
+        "pressureHpa": { "type": "number" }
+      }
+    },
+    "LureEvent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schemaVersion", "occurredAt", "lureFamily", "presentation"],
+      "properties": {
+        "schemaVersion": { "$ref": "#/$defs/SchemaVersion" },
+        "occurredAt": { "$ref": "#/$defs/InstantUtc" },
+        "lureFamily": { "$ref": "#/$defs/LureFamily" },
+        "presentation": { "$ref": "#/$defs/PresentationTechnique" },
+        "depthM": { "type": "number" },
+        "retrieveStyle": { "$ref": "#/$defs/RetrieveStyle" }
+      }
+    },
+    "UserActionEvent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schemaVersion", "occurredAt", "followedPrimary"],
+      "properties": {
+        "schemaVersion": { "$ref": "#/$defs/SchemaVersion" },
+        "occurredAt": { "$ref": "#/$defs/InstantUtc" },
+        "deliveredDecisionId": { "$ref": "#/$defs/Uuid" },
+        "followedPrimary": { "type": "boolean" },
+        "followedRecommendation": { "type": "boolean" },
+        "recommendationRole": { "$ref": "#/$defs/RecommendationRole" },
+        "actualAction": { "$ref": "#/$defs/GuidanceAction" },
+        "payload": { "$ref": "#/$defs/JsonObject" }
+      }
+    },
+    "GuidancePlanStep": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schemaVersion", "step", "type", "committed"],
+      "properties": {
+        "schemaVersion": { "$ref": "#/$defs/SchemaVersion" },
+        "step": { "type": "integer", "minimum": 1 },
+        "type": { "$ref": "#/$defs/GuidanceAction" },
+        "committed": { "type": "boolean" },
+        "tripWaypointId": { "$ref": "#/$defs/Uuid" },
+        "durationMinutes": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "GuidancePlanVersion": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schemaVersion", "version", "createdBy", "createdAt", "steps"],
+      "properties": {
+        "schemaVersion": { "$ref": "#/$defs/SchemaVersion" },
+        "version": { "type": "integer", "minimum": 1 },
+        "parentVersion": { "type": "integer", "minimum": 1 },
+        "replanReason": { "type": "string" },
+        "replanScope": { "$ref": "#/$defs/ReplanScope" },
+        "createdBy": { "$ref": "#/$defs/PlanCreatedBy" },
+        "createdAt": { "$ref": "#/$defs/InstantUtc" },
+        "steps": { "type": "array", "items": { "$ref": "#/$defs/GuidancePlanStep" } }
+      }
+    },
+    "HistoricalPerformance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schemaVersion", "updatedAt"],
+      "description": "catchCount is an alias of landedCount. sampleSize is an alias of contributingSessionWaypointCount. When both members of an alias pair are present they must be equal. effortMinutes is a display field derived from fishingEffortSeconds.",
+      "properties": {
+        "schemaVersion": { "$ref": "#/$defs/SchemaVersion" },
+        "lakeId": { "$ref": "#/$defs/Uuid" },
+        "zoneId": { "$ref": "#/$defs/Uuid" },
+        "tripWaypointId": { "$ref": "#/$defs/Uuid" },
+        "species": { "$ref": "#/$defs/FishSpecies" },
+        "seasonBucket": { "$ref": "#/$defs/SeasonBucket" },
+        "timeBucket": { "$ref": "#/$defs/TimeBucket" },
+        "structure": { "$ref": "#/$defs/FeatureType" },
+        "windBucket": { "$ref": "#/$defs/WindBucket" },
+        "windDirectionBucket": { "$ref": "#/$defs/WindDirectionBucket" },
+        "lureFamily": { "$ref": "#/$defs/LureFamily" },
+        "effortMinutes": { "type": "number", "minimum": 0 },
+        "fishingEffortSeconds": { "type": "integer", "minimum": 0 },
+        "biteCount": { "type": "integer", "minimum": 0 },
+        "fishOnCount": { "type": "integer", "minimum": 0 },
+        "landedCount": { "type": "integer", "minimum": 0 },
+        "catchCount": { "type": "integer", "minimum": 0 },
+        "contributingSessionWaypointCount": { "type": "integer", "minimum": 0 },
+        "sampleSize": { "type": "integer", "minimum": 0 },
+        "biteRate": { "type": "number", "minimum": 0 },
+        "fishOnRate": { "type": "number", "minimum": 0 },
+        "landingRate": { "type": "number", "minimum": 0 },
+        "cpue": { "type": "number", "minimum": 0 },
+        "smoothedScore": { "type": "number" },
+        "sampleConfidence": { "$ref": "#/$defs/UnitInterval" },
+        "empiricalAlgorithmVersion": { "type": "integer", "minimum": 1 },
+        "updatedAt": { "$ref": "#/$defs/InstantUtc" }
+      }
+    },
+    "SemanticMemory": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schemaVersion", "memoryId", "kind", "text", "createdAt"],
+      "properties": {
+        "schemaVersion": { "$ref": "#/$defs/SchemaVersion" },
+        "memoryId": { "$ref": "#/$defs/Uuid" },
+        "userId": { "$ref": "#/$defs/Uuid" },
+        "kind": { "$ref": "#/$defs/SemanticMemoryKind" },
+        "text": { "type": "string", "minLength": 1 },
+        "embeddingRef": { "type": "string" },
+        "createdAt": { "$ref": "#/$defs/InstantUtc" }
+      }
+    },
+    "UserFishingPreferences": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schemaVersion", "userId"],
+      "properties": {
+        "schemaVersion": { "$ref": "#/$defs/SchemaVersion" },
+        "userId": { "$ref": "#/$defs/Uuid" },
+        "avoidLongMoveInWind": { "type": "boolean" },
+        "preferredTechniques": { "type": "array", "items": { "$ref": "#/$defs/TechniqueType" } },
+        "dislikedTechniques": { "type": "array", "items": { "$ref": "#/$defs/TechniqueType" } },
+        "maxMoveMeters": { "type": "number", "minimum": 0 },
+        "windConservatism": { "$ref": "#/$defs/UnitInterval" }
+      }
+    },
+    "SessionSummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schemaVersion", "sessionId", "summaryText", "keyFacts", "createdAt"],
+      "properties": {
+        "schemaVersion": { "$ref": "#/$defs/SchemaVersion" },
+        "sessionId": { "$ref": "#/$defs/Uuid" },
+        "summaryText": { "type": "string", "minLength": 1 },
+        "keyFacts": { "type": "array", "items": { "type": "string" } },
+        "createdAt": { "$ref": "#/$defs/InstantUtc" }
+      }
+    },
+    "AgentReflection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schemaVersion", "sessionId", "claimKind", "text", "createdAt"],
+      "properties": {
+        "schemaVersion": { "$ref": "#/$defs/SchemaVersion" },
+        "sessionId": { "$ref": "#/$defs/Uuid" },
+        "runId": { "$ref": "#/$defs/Uuid" },
+        "claimKind": { "$ref": "#/$defs/ReflectionClaimKind" },
+        "causeKind": { "$ref": "#/$defs/ReflectionCauseKind" },
+        "text": { "type": "string", "minLength": 1 },
+        "createdAt": { "$ref": "#/$defs/InstantUtc" }
+      }
+    },
+    "LiveWaypointActivity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schemaVersion", "activeAnglersNearby", "recentFishOnCount", "pressure", "observedAt"],
+      "properties": {
+        "schemaVersion": { "$ref": "#/$defs/SchemaVersion" },
+        "tripWaypointId": { "$ref": "#/$defs/Uuid" },
+        "radiusMeters": { "type": "integer", "minimum": 50, "maximum": 5000 },
+        "activeAnglersNearby": { "type": "integer", "minimum": 0 },
+        "recentFishOnCount": { "type": "integer", "minimum": 0 },
+        "pressure": { "$ref": "#/$defs/LiveWaypointPressure" },
+        "observedAt": { "$ref": "#/$defs/InstantUtc" }
+      }
+    },
+    "OutcomeAttribution": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "outcomeEventId",
+        "attributionDimension",
+        "followedRecommendation",
+        "recommendationRole",
+        "outcomeKind"
+      ],
+      "description": "Follow state is dimension-local. Use followedRecommendation + recommendationRole; do not treat decision-level followedPrimary as the only follow flag.",
+      "properties": {
+        "schemaVersion": { "$ref": "#/$defs/SchemaVersion" },
+        "outcomeEventId": { "$ref": "#/$defs/Uuid" },
+        "fishInteractionId": { "$ref": "#/$defs/Uuid" },
+        "deliveredDecisionId": { "$ref": "#/$defs/Uuid" },
+        "attributionDimension": { "$ref": "#/$defs/AttributionDimension" },
+        "followedRecommendation": { "type": "boolean" },
+        "recommendationRole": { "$ref": "#/$defs/RecommendationRole" },
+        "outcomeKind": { "$ref": "#/$defs/OutcomeKind" },
+        "windowKind": { "$ref": "#/$defs/AttributionWindowKind" },
+        "confidence": { "$ref": "#/$defs/UnitInterval" },
+        "attributedAt": { "$ref": "#/$defs/InstantUtc" }
+      }
+    },
+    "InferredUserPreference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "userId",
+        "key",
+        "value",
+        "evidenceCount",
+        "confidence",
+        "firstObservedAt",
+        "lastObservedAt"
+      ],
+      "properties": {
+        "schemaVersion": { "$ref": "#/$defs/SchemaVersion" },
+        "userId": { "$ref": "#/$defs/Uuid" },
+        "key": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "value": { "type": "string", "minLength": 1, "maxLength": 512 },
+        "evidenceCount": { "type": "integer", "minimum": 0 },
+        "confidence": { "$ref": "#/$defs/UnitInterval" },
+        "firstObservedAt": { "$ref": "#/$defs/InstantUtc" },
+        "lastObservedAt": { "$ref": "#/$defs/InstantUtc" }
+      }
+    },
+    "RetrievedMemory": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Read-only retrieval result passed to FishingAgentContextBuilder. Not a second Historical/Live DTO.",
+      "properties": {
+        "userPreferences": { "$ref": "#/$defs/UserFishingPreferences" },
+        "inferredPreferences": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/InferredUserPreference" }
+        },
+        "retrievedMemoryIds": { "type": "array", "items": { "type": "string", "minLength": 1 } }
+      }
+    },
+    "EvalSuiteKind": {
+      "x-internal": true,
+      "type": "string",
+      "description": "Internal eval suite kind. SIMULATION is reserved; implementation is deferred.",
+      "enum": [
+        "PLATFORM_REGRESSION",
+        "AGENT_POLICY_EVAL",
+        "SHADOW_REPLAY",
+        "ONLINE_ROLLUP",
+        "SIMULATION"
+      ]
+    },
+    "ReplayMode": {
+      "x-internal": true,
+      "type": "string",
+      "description": "FROZEN_REPLAY uses recorded state/memory/tools/clock. COMPONENT_RECOMPUTE must list recomputed components.",
+      "enum": ["FROZEN_REPLAY", "COMPONENT_RECOMPUTE"]
+    },
+    "EvalExecutionMode": {
+      "x-internal": true,
+      "type": "string",
+      "description": "Eval-only execution mode. Live Facade traffic is not this enum.",
+      "enum": ["EVAL"]
+    },
+    "EvalCaseResultStatus": {
+      "x-internal": true,
+      "type": "string",
+      "description": "SKIP is not PASS. Coverage uses SKIP in the denominator only. UNSCORABLE is not success or failure: a replayed action or target that differs from the historically followed decision cannot use the historical outcome.",
+      "enum": ["PASS", "FAIL", "ERROR", "SKIP", "UNSCORABLE"]
+    },
+    "GuidanceSuccessKind": {
+      "x-internal": true,
+      "type": "string",
+      "description": "Strict guidance success is FISH_ON_SUCCESS only. BITE_SIGNAL_ONLY is not NO_FISH_SIGNAL. Landing is not a member.",
+      "enum": [
+        "FISH_ON_SUCCESS",
+        "BITE_SIGNAL_ONLY",
+        "NO_FISH_SIGNAL",
+        "NOT_FOLLOWED",
+        "UNATTRIBUTED"
+      ]
+    },
+    "RecomputedComponent": {
+      "x-internal": true,
+      "type": "string",
+      "description": "Closed set of components that COMPONENT_RECOMPUTE may rerun. Unlisted components stay frozen.",
+      "enum": [
+        "MEMORY_RETRIEVAL",
+        "TOOLS",
+        "CONTEXT",
+        "ENVIRONMENT",
+        "SAFETY",
+        "MODEL",
+        "PROMPT"
+      ]
+    },
+    "LearningQuarantineReason": {
+      "x-internal": true,
+      "type": "string",
+      "description": "Non-retryable learning-outbox quarantine reason. UNKNOWN_JOB_TYPE must not stay PENDING.",
+      "enum": ["UNKNOWN_JOB_TYPE"]
+    },
+    "EvalComponentVersions": {
+      "x-internal": true,
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Versions of components used for an eval run. Missing versions stay omitted, not invented.",
+      "properties": {
+        "promptVersion": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "modelProvider": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "modelName": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "modelVersion": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "toolSchemaVersion": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "contextVersion": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "memoryRetrievalVersion": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "safetyVersion": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "validatorVersion": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "agentPolicyVersion": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "learningAlgorithmVersion": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "learningSnapshotVersion": { "type": "string", "minLength": 1, "maxLength": 64 }
+      }
+    },
+    "EvalCoverage": {
+      "x-internal": true,
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["loadedCases", "skippedCases", "attemptedCases"],
+      "description": "evalCoverage is loadedCases / attemptedCases when attemptedCases > 0. SKIP counts in the denominator and is not a pass. Omitted coverage is not 0.",
+      "properties": {
+        "loadedCases": { "type": "integer", "minimum": 0 },
+        "skippedCases": { "type": "integer", "minimum": 0 },
+        "attemptedCases": { "type": "integer", "minimum": 0 },
+        "passedCases": { "type": "integer", "minimum": 0 },
+        "evalCoverage": { "$ref": "#/$defs/UnitInterval" }
+      }
+    },
+    "EvalRun": {
+      "x-internal": true,
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "evalRunId",
+        "suite",
+        "kind",
+        "replayMode",
+        "recomputedComponents",
+        "componentVersions",
+        "coverage",
+        "startedAt"
+      ],
+      "description": "Internal eval run envelope. Scenario fields are placeholders for a future SIMULATION suite. Not an HTTP resource.",
+      "properties": {
+        "schemaVersion": { "$ref": "#/$defs/SchemaVersion" },
+        "evalRunId": { "$ref": "#/$defs/Uuid" },
+        "suite": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "kind": { "$ref": "#/$defs/EvalSuiteKind" },
+        "replayMode": { "$ref": "#/$defs/ReplayMode" },
+        "recomputedComponents": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/RecomputedComponent" }
+        },
+        "componentVersions": { "$ref": "#/$defs/EvalComponentVersions" },
+        "pricingVersion": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "coverage": { "$ref": "#/$defs/EvalCoverage" },
+        "scenarioId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "seed": { "type": "integer" },
+        "simulationVersion": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "scenarioTags": { "type": "array", "items": { "type": "string", "minLength": 1, "maxLength": 64 } },
+        "startedAt": { "$ref": "#/$defs/InstantUtc" },
+        "finishedAt": { "$ref": "#/$defs/InstantUtc" }
+      }
+    },
+    "EvalCaseResult": {
+      "x-internal": true,
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "evalRunId",
+        "caseId",
+        "status",
+        "allowedActions",
+        "forbiddenActions",
+        "invariants"
+      ],
+      "description": "Internal case result. recordedOutcomeKind describes the original action only and must not be treated as shadow counterfactual success. A materially different replayed action or target is UNSCORABLE, not PASS or FAIL. There is no counterfactualSuccess field.",
+      "properties": {
+        "schemaVersion": { "$ref": "#/$defs/SchemaVersion" },
+        "evalRunId": { "$ref": "#/$defs/Uuid" },
+        "caseId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "status": { "$ref": "#/$defs/EvalCaseResultStatus" },
+        "allowedActions": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/GuidanceAction" }
+        },
+        "forbiddenActions": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/GuidanceAction" }
+        },
+        "invariants": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1, "maxLength": 128 }
+        },
+        "actualDecision": { "$ref": "#/$defs/DeliveredDecision" },
+        "actualPrimaryAction": { "$ref": "#/$defs/GuidanceAction" },
+        "recordedPrimaryAction": { "$ref": "#/$defs/GuidanceAction" },
+        "recordedOutcomeKind": { "$ref": "#/$defs/OutcomeKind" },
+        "skipReason": { "type": "string", "minLength": 1, "maxLength": 500 },
+        "errorMessage": { "type": "string", "minLength": 1, "maxLength": 1000 },
+        "scenarioId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "seed": { "type": "integer" }
+      }
+    },
+    "OnlineGuidanceMetrics": {
+      "x-internal": true,
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "windowStart",
+        "windowEnd",
+        "fishOnSuccessCount",
+        "biteSignalOnlyCount",
+        "noFishSignalCount",
+        "notFollowedCount",
+        "unattributedCount",
+        "effectiveFishingEffortSeconds"
+      ],
+      "description": "Derived online metrics. Rates are nullable when the denominator is unknown; never encode missing rates as 0. Hard release gates use unsafeDeliveredRate and invalidDeliveredWaypointRate only.",
+      "properties": {
+        "schemaVersion": { "$ref": "#/$defs/SchemaVersion" },
+        "windowStart": { "$ref": "#/$defs/InstantUtc" },
+        "windowEnd": { "$ref": "#/$defs/InstantUtc" },
+        "attributionDimension": { "$ref": "#/$defs/AttributionDimension" },
+        "fishOnSuccessCount": { "type": "integer", "minimum": 0 },
+        "biteSignalOnlyCount": { "type": "integer", "minimum": 0 },
+        "noFishSignalCount": { "type": "integer", "minimum": 0 },
+        "notFollowedCount": { "type": "integer", "minimum": 0 },
+        "unattributedCount": { "type": "integer", "minimum": 0 },
+        "followedRecommendationCount": { "type": "integer", "minimum": 0 },
+        "explicitAcceptanceRate": { "$ref": "#/$defs/UnitInterval" },
+        "observedFollowThroughRate": { "$ref": "#/$defs/UnitInterval" },
+        "rejectRate": { "$ref": "#/$defs/UnitInterval" },
+        "overrideRate": { "$ref": "#/$defs/UnitInterval" },
+        "candidateUnsafeRate": { "$ref": "#/$defs/UnitInterval" },
+        "candidateInvalidWaypointRate": { "$ref": "#/$defs/UnitInterval" },
+        "validatorInterceptionRate": { "$ref": "#/$defs/UnitInterval" },
+        "unsafeDeliveredRate": { "$ref": "#/$defs/UnitInterval" },
+        "invalidDeliveredWaypointRate": { "$ref": "#/$defs/UnitInterval" },
+        "effectiveFishingEffortSeconds": { "type": "integer", "minimum": 0 },
+        "fishOnPerFishingHourAfterRecommendation": { "type": "number", "minimum": 0 },
+        "bitePerFishingHourAfterRecommendation": { "type": "number", "minimum": 0 }
+      }
+    },
+    "UsageTelemetry": {
+      "x-internal": true,
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schemaVersion"],
+      "description": "Unknown token or cost usage is omitted or null, never numeric 0. Amounts require an explicit pricingVersion.",
+      "properties": {
+        "schemaVersion": { "$ref": "#/$defs/SchemaVersion" },
+        "modelProvider": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "modelName": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "modelVersion": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "promptVersion": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "inputTokens": { "type": "integer", "minimum": 0 },
+        "outputTokens": { "type": "integer", "minimum": 0 },
+        "totalTokens": { "type": "integer", "minimum": 0 },
+        "costUsd": { "type": "number", "minimum": 0 },
+        "pricingVersion": { "type": "string", "minLength": 1, "maxLength": 64 }
+      }
+    },
+    "FrozenAgentRunSnapshot": {
+      "x-internal": true,
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "runId",
+        "sessionId",
+        "trigger",
+        "state",
+        "recordedToolObservations",
+        "recordedClock"
+      ],
+      "description": "Frozen replay input loaded from persisted agent_runs. context may be omitted when safety BLOCK skipped context build. Live data must not be mixed in.",
+      "properties": {
+        "schemaVersion": { "$ref": "#/$defs/SchemaVersion" },
+        "runId": { "$ref": "#/$defs/Uuid" },
+        "sessionId": { "$ref": "#/$defs/Uuid" },
+        "trigger": { "$ref": "#/$defs/GuidanceTrigger" },
+        "state": { "$ref": "#/$defs/FishingSessionState" },
+        "context": { "$ref": "#/$defs/FishingAgentContext" },
+        "retrievedMemory": { "$ref": "#/$defs/RetrievedMemory" },
+        "recordedToolObservations": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/ToolCallRecord" }
+        },
+        "recordedClock": { "$ref": "#/$defs/InstantUtc" },
+        "componentVersions": { "$ref": "#/$defs/EvalComponentVersions" }
+      }
+    }
+  }
+}

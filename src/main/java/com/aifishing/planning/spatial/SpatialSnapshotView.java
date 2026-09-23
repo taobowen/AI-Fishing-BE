@@ -51,5 +51,14 @@ public record SpatialSnapshotView(
     }
 
     public record CachedPath(double meters, LineString geometry) {
+        private static final CachedPath UNREACHABLE = new CachedPath(Double.NaN, null);
+
+        public static CachedPath unreachable() {
+            return UNREACHABLE;
+        }
+
+        public boolean isUnreachable() {
+            return Double.isNaN(meters);
+        }
     }
 }

@@ -86,6 +86,9 @@ public class Boat extends AuditedEntity {
     @Column
     private BoatProvenance provenance;
 
+    @Column(name = "is_default", nullable = false)
+    private boolean defaultBoat = false;
+
     @Override
     public UUID id() {
         return id;
@@ -256,6 +259,14 @@ public class Boat extends AuditedEntity {
 
     public void setProvenance(BoatProvenance provenance) {
         this.provenance = provenance;
+    }
+
+    public boolean isDefaultBoat() {
+        return defaultBoat;
+    }
+
+    public void setDefaultBoat(boolean defaultBoat) {
+        this.defaultBoat = defaultBoat;
     }
 
     public BoatMotor primaryTransitMotor() {

@@ -87,6 +87,9 @@ public class Lake extends AuditedEntity {
     @Column(name = "processing_error")
     private String processingError;
 
+    @Column(name = "card_image_path")
+    private String cardImagePath;
+
     @Override
     public UUID id() {
         return id;
@@ -279,5 +282,13 @@ public class Lake extends AuditedEntity {
 
     public void setProcessingError(String processingError) {
         this.processingError = processingError;
+    }
+
+    public String getCardImagePath() {
+        return cardImagePath;
+    }
+
+    public void setCardImagePath(String cardImagePath) {
+        this.cardImagePath = cardImagePath;
     }
 }

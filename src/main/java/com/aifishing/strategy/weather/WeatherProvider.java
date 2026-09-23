@@ -13,4 +13,16 @@ public interface WeatherProvider {
             LocalTime fishingStart,
             LocalTime fishingEnd
     );
+
+    default WeatherContext forecast(
+            double latitude,
+            double longitude,
+            String timeZoneId,
+            LocalDate startDate,
+            LocalDate endDate,
+            LocalTime fishingStart,
+            LocalTime fishingEnd
+    ) {
+        return forecast(latitude, longitude, timeZoneId, startDate, fishingStart, fishingEnd);
+    }
 }

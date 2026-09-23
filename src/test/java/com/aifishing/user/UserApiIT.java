@@ -26,6 +26,32 @@ class UserApiIT extends AbstractIntegrationTest {
     }
 
     @Test
+    void patchOwnedLureFamiliesAndKitSetupComplete() throws Exception {
+        mockMvc.perform(asDev(patch("/api/v1/me")).content("""
+                        {"ownedLureFamilies":["jigs","SOFT_PLASTICS","jigs"],"kitSetupComplete":true}
+                        """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.ownedLureFamilies[0]", is("JIGS")))
+                .andExpect(jsonPath("$.ownedLureFamilies[1]", is("SOFT_PLASTICS")))
+                .andExpect(jsonPath("$.ownedLureFamilies.length()", is(2)))
+                .andExpect(jsonPath("$.kitSetupComplete", is(true)));
+
+        mockMvc.perform(asDev(get("/api/v1/me")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.ownedLureFamilies[0]", is("JIGS")))
+                .andExpect(jsonPath("$.ownedLureFamilies[1]", is("SOFT_PLASTICS")))
+                .andExpect(jsonPath("$.kitSetupComplete", is(true)));
+    }
+
+    @Test
+    void unknownOwnedLureFamilyIsRejected() throws Exception {
+        mockMvc.perform(asDev(patch("/api/v1/me")).content("""
+                        {"ownedLureFamilies":["NED_RIG"]}
+                        """))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
     void unknownUserIdIsUnauthorized() throws Exception {
         mockMvc.perform(get("/api/v1/me")
                         .header("X-User-Id", "99999999-9999-9999-9999-999999999999"))

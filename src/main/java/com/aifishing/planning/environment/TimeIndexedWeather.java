@@ -5,6 +5,7 @@ import com.aifishing.strategy.weather.WeatherContext;
 
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.LocalTime;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
 import java.util.ArrayList;
@@ -30,11 +31,25 @@ public final class TimeIndexedWeather {
         ZoneId resolved = zone == null ? ZoneId.of("UTC") : zone;
         List<TimedHour> timed = new ArrayList<>();
         if (snapshot != null && snapshot.hours() != null) {
-            LocalDate date = snapshot.forecastDate();
+            LocalDate rollingDate = snapshot.forecastDate();
+            LocalTime previousTime = null;
             for (WeatherContext.HourlyWeather hour : snapshot.hours()) {
-                if (hour == null || hour.time() == null || date == null) {
+                if (hour == null || hour.time() == null) {
                     continue;
                 }
+                LocalDate date = hour.date();
+                if (date == null) {
+                    if (rollingDate == null) {
+                        continue;
+                    }
+                    if (previousTime != null && hour.time().isBefore(previousTime)) {
+                        rollingDate = rollingDate.plusDays(1);
+                    }
+                    date = rollingDate;
+                } else {
+                    rollingDate = date;
+                }
+                previousTime = hour.time();
                 Instant at = ZonedDateTime.of(date, hour.time(), resolved).toInstant();
                 timed.add(new TimedHour(at, hour));
             }

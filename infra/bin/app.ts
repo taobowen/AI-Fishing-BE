@@ -28,6 +28,7 @@ new ApiStack(app, `AiFishing-Api-${config.stage}`, {
   vpc: foundation.vpc,
   albSecurityGroup: foundation.albSecurityGroup,
   ecsSecurityGroup: foundation.ecsSecurityGroup,
+  rdsSecurityGroup: foundation.rdsSecurityGroup,
   bucket: foundation.bucket,
   database: foundation.database,
   dbSecret: foundation.dbSecret,
@@ -40,7 +41,9 @@ new ApiStack(app, `AiFishing-Api-${config.stage}`, {
 
 const website = new WebsiteStack(app, `AiFishing-Website-${config.stage}`, {
   env,
+  crossRegionReferences: true,
   config,
+  certificate: websiteCert?.certificate,
 });
 if (websiteCert) {
   website.addDependency(websiteCert);

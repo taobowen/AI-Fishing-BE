@@ -124,7 +124,7 @@ Fetch still uses the lake envelope plus 0.02°. Canonical insert does **not** tr
 
 Enabled only when `app.admin.enabled=true` (dev and test profiles). Otherwise the controller is not registered (404).
 
-`POST /api/v1/admin/lakes/validation-catalog` inserts the four documented lake UUIDs if missing (no reset). `POST /api/v1/admin/lakes/{id}/import` runs all datasets; `?dataset=ACCESS_POINT` refreshes only fishing access points and does not rewrite other canonical tables or their `importVersion`. Structure fingerprints (`sourceSnapshotId` on GIS/VISION/HYBRID) ignore `ACCESS_POINT` status. `GET /api/v1/admin/lakes/{id}/bootstrap-validation` is a read-only PostGIS sanity report. Dataset status includes pagination fields (`pageCount`, `rawRecordCount`, `transferLimitObserved`, `paginationComplete`, `paginationWarning`). Intermediate ArcGIS `exceededTransferLimit` is not a truncation warning. Operator script: [`docs/production-data-bootstrap.md`](production-data-bootstrap.md).
+`POST /api/v1/admin/lakes/validation-catalog` inserts the four documented lake UUIDs if missing (no reset). `POST /api/v1/admin/lakes/{id}/import` enqueues an `IMPORT` ops job and returns **202** with `jobId` (local `app.ops.jobs.launcher=inline` runs it in-process; prod uses ECS RunTask). Poll `GET /api/v1/admin/lakes/jobs/{jobId}` until `SUCCEEDED` or `FAILED`. Repeat POSTs for the same lake/dataset while `QUEUED`/`RUNNING` return that same `jobId`. `?dataset=ACCESS_POINT` refreshes only fishing access points and does not rewrite other canonical tables or their `importVersion`. Structure fingerprints (`sourceSnapshotId` on GIS/VISION/HYBRID) ignore `ACCESS_POINT` status. `GET /api/v1/admin/lakes/{id}/bootstrap-validation` is a read-only PostGIS sanity report. Dataset status includes pagination fields (`pageCount`, `rawRecordCount`, `transferLimitObserved`, `paginationComplete`, `paginationWarning`). Intermediate ArcGIS `exceededTransferLimit` is not a truncation warning. Operator script: [`docs/production-data-bootstrap.md`](production-data-bootstrap.md).
 
 ```bash
 docker compose up -d
@@ -143,6 +143,8 @@ Seed lake IDs (fixed UUIDs):
 ```bash
 curl -X POST -H "X-User-Id: 11111111-1111-1111-1111-111111111111" \
   http://localhost:8080/api/v1/admin/lakes/44444444-4444-4444-4444-444444444444/import
+# 202 {"jobId":"...","status":"QUEUED"|"SUCCEEDED",...}
+# poll GET /api/v1/admin/lakes/jobs/{jobId} until SUCCEEDED; summary is in result
 
 curl -X POST -H "X-User-Id: 11111111-1111-1111-1111-111111111111" \
   "http://localhost:8080/api/v1/admin/lakes/44444444-4444-4444-4444-444444444444/import?dataset=ACCESS_POINT"

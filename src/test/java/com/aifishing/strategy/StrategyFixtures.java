@@ -152,6 +152,7 @@ public final class StrategyFixtures {
                 new TripContext(
                         TRIP_ID,
                         LocalDate.of(2026, 9, 12),
+                        LocalDate.of(2026, 9, 12),
                         LocalTime.of(6, 0),
                         LocalTime.of(15, 0),
                         "America/Toronto",

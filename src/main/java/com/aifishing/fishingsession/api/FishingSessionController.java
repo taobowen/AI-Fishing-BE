@@ -4,11 +4,13 @@ import com.aifishing.fishingsession.dto.ClientEventRequest;
 import com.aifishing.fishingsession.dto.FishingSessionResponse;
 import com.aifishing.fishingsession.dto.LocationBatchRequest;
 import com.aifishing.fishingsession.dto.NavigationResponse;
+import com.aifishing.fishingsession.dto.SessionResultsResponse;
 import com.aifishing.fishingsession.dto.SessionTrackResponse;
 import com.aifishing.fishingsession.dto.StartFishingSessionRequest;
 import com.aifishing.fishingsession.service.FishingSessionService;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -36,9 +38,21 @@ public class FishingSessionController {
         return fishingSessionService.start(tripId, request);
     }
 
+    @GetMapping("/api/v1/fishing-sessions/current")
+    public ResponseEntity<FishingSessionResponse> current() {
+        return fishingSessionService.currentUnfinished()
+                .map(ResponseEntity::ok)
+                .orElseGet(() -> ResponseEntity.noContent().build());
+    }
+
     @GetMapping("/api/v1/fishing-sessions/{sessionId}")
     public FishingSessionResponse get(@PathVariable UUID sessionId) {
         return fishingSessionService.get(sessionId);
+    }
+
+    @GetMapping("/api/v1/fishing-sessions/{sessionId}/results")
+    public SessionResultsResponse results(@PathVariable UUID sessionId) {
+        return fishingSessionService.results(sessionId);
     }
 
     @PostMapping("/api/v1/fishing-sessions/{sessionId}/locations")
@@ -81,6 +95,30 @@ public class FishingSessionController {
             @Valid @RequestBody ClientEventRequest request
     ) {
         return fishingSessionService.end(sessionId, request);
+    }
+
+    @PostMapping("/api/v1/fishing-sessions/{sessionId}/ad-hoc-fishing/start")
+    public FishingSessionResponse startAdHoc(
+            @PathVariable UUID sessionId,
+            @Valid @RequestBody ClientEventRequest request
+    ) {
+        return fishingSessionService.startAdHocFishing(sessionId, request);
+    }
+
+    @PostMapping("/api/v1/fishing-sessions/{sessionId}/ad-hoc-fishing/end")
+    public FishingSessionResponse endAdHoc(
+            @PathVariable UUID sessionId,
+            @Valid @RequestBody ClientEventRequest request
+    ) {
+        return fishingSessionService.endAdHocFishing(sessionId, request);
+    }
+
+    @PostMapping("/api/v1/fishing-sessions/{sessionId}/stationary-prompt/dismiss")
+    public FishingSessionResponse dismissStationaryPrompt(
+            @PathVariable UUID sessionId,
+            @Valid @RequestBody ClientEventRequest request
+    ) {
+        return fishingSessionService.dismissStationaryPrompt(sessionId, request);
     }
 
     @PostMapping("/api/v1/fishing-sessions/{sessionId}/waypoints/{waypointId}/arrive")

@@ -2,6 +2,7 @@ package com.aifishing.planning.domain;
 
 import com.aifishing.common.enums.TripPlanStatus;
 import com.aifishing.lake.processing.dto.Pipeline;
+import com.aifishing.planning.tactics.TacticsStatus;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -99,6 +100,16 @@ public class TripPlan {
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "schedule_events", columnDefinition = "jsonb")
     private List<Map<String, Object>> scheduleEvents;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "tactics_status", nullable = false)
+    private TacticsStatus tacticsStatus = TacticsStatus.NONE;
+
+    @Column(name = "tactics_started_at")
+    private Instant tacticsStartedAt;
+
+    @Column(name = "tactics_requested", nullable = false)
+    private boolean tacticsRequested;
 
     @PrePersist
     void ensureId() {
@@ -297,5 +308,29 @@ public class TripPlan {
 
     public void setScheduleEvents(List<Map<String, Object>> scheduleEvents) {
         this.scheduleEvents = scheduleEvents;
+    }
+
+    public TacticsStatus getTacticsStatus() {
+        return tacticsStatus == null ? TacticsStatus.NONE : tacticsStatus;
+    }
+
+    public void setTacticsStatus(TacticsStatus tacticsStatus) {
+        this.tacticsStatus = tacticsStatus == null ? TacticsStatus.NONE : tacticsStatus;
+    }
+
+    public Instant getTacticsStartedAt() {
+        return tacticsStartedAt;
+    }
+
+    public void setTacticsStartedAt(Instant tacticsStartedAt) {
+        this.tacticsStartedAt = tacticsStartedAt;
+    }
+
+    public boolean isTacticsRequested() {
+        return tacticsRequested;
+    }
+
+    public void setTacticsRequested(boolean tacticsRequested) {
+        this.tacticsRequested = tacticsRequested;
     }
 }

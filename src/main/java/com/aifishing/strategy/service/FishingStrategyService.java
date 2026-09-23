@@ -3,6 +3,7 @@ package com.aifishing.strategy.service;
 import com.aifishing.common.exception.NotFoundException;
 import com.aifishing.lake.processing.OpenAiProperties;
 import com.aifishing.lake.processing.dto.Pipeline;
+import com.aifishing.planning.spatial.GenerateProfiler;
 import com.aifishing.strategy.StrategyProperties;
 import com.aifishing.strategy.ai.FishingStrategyReasoner;
 import com.aifishing.strategy.context.FishingContext;
@@ -96,6 +97,7 @@ public class FishingStrategyService {
             List<String> errors = validator.validate(result.profile(), context);
             if (!errors.isEmpty()) {
                 log.info("Retrying strategy reasoner after validation errors: {}", errors);
+                GenerateProfiler.current().count("strategyAiRetries");
                 result = reason(context, errors);
                 errors = validator.validate(result.profile(), context);
             }
@@ -164,6 +166,12 @@ public class FishingStrategyService {
     }
 
     private FishingStrategyReasoner.StrategyReasonerResult reason(FishingContext context, List<String> errors) {
-        return reasoner.reason(context, errors);
+        GenerateProfiler.current().count("strategyAiCalls");
+        GenerateProfiler.current().start(GenerateProfiler.STRATEGY_AI);
+        try {
+            return reasoner.reason(context, errors);
+        } finally {
+            GenerateProfiler.current().end(GenerateProfiler.STRATEGY_AI);
+        }
     }
 }

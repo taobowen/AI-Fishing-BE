@@ -27,11 +27,11 @@ class RoutePlannerTimeAwareTest {
         properties.getSchedule().setMinSpotMinutes(20);
         properties.getSchedule().setMaxSpotMinutes(20);
         var weather = RoutePlannerHarness.hourly(List.of(
-                RoutePlannerHarness.hour(8, 0, 45, 80, 100),
-                RoutePlannerHarness.hour(8, 15, 45, 80, 100),
+                RoutePlannerHarness.hour(8, 0, 32, 90, 40),
+                RoutePlannerHarness.hour(8, 15, 32, 90, 40),
                 RoutePlannerHarness.hour(8, 30, 8, 20, 600),
                 RoutePlannerHarness.hour(9, 0, 8, 20, 600)
-        ), 45, 80);
+        ), 32, 90);
         PlanningContext context = RoutePlannerHarness.context(weather, properties, RoutePlannerHarness.launch());
         double lat = PlanningFixtures.HEAD_LAT;
         double lng = PlanningFixtures.HEAD_LNG;
@@ -58,6 +58,7 @@ class RoutePlannerTimeAwareTest {
         PlanningProperties properties = new PlanningProperties();
         properties.getSchedule().setMaxWaypoints(2);
         properties.getSchedule().setDwellOptionsMinutes(List.of(20));
+        properties.getSchedule().setPointDwellMinutes(List.of(20));
         properties.getSchedule().setMinSpotMinutes(20);
         properties.getSchedule().setMaxSpotMinutes(20);
         properties.getEnvironment().getSolar().setMaxWeight(0.40);
@@ -87,7 +88,20 @@ class RoutePlannerTimeAwareTest {
                 FeatureType.POINT);
         RoutePlanner.RouteResult result = planner.plan(List.of(afternoon, morning), context);
         assertThat(result.stops()).isNotEmpty();
-        assertThat(result.stops().get(0).candidate().spot().getFeatureId()).isEqualTo(morningId);
+        assertThat(result.stops())
+                .extracting(stop -> stop.candidate().spot().getFeatureId())
+                .contains(morningId);
+        PlannedStop morningStop = result.stops().stream()
+                .filter(stop -> morningId.equals(stop.candidate().spot().getFeatureId()))
+                .findFirst()
+                .orElseThrow();
+        PlannedStop afternoonStop = result.stops().stream()
+                .filter(stop -> afternoonId.equals(stop.candidate().spot().getFeatureId()))
+                .findFirst()
+                .orElse(null);
+        if (afternoonStop != null) {
+            assertThat(morningStop.visitIncrement()).isGreaterThan(afternoonStop.visitIncrement());
+        }
     }
 
     @Test

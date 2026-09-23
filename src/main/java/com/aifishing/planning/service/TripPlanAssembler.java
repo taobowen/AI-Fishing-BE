@@ -87,7 +87,10 @@ public class TripPlanAssembler {
                 plan.getMetadata(),
                 toWaypoints(waypoints),
                 toTransitLegs(plan.getId()),
-                plan.getGeneratedAt()
+                plan.getGeneratedAt(),
+                plan.getTacticsStatus(),
+                plan.isTacticsRequested(),
+                plan.getTacticsStartedAt()
         );
     }
 

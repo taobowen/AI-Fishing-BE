@@ -2,6 +2,7 @@ package com.aifishing.planning.spatial;
 
 import com.aifishing.common.geo.GeoMapper;
 import com.aifishing.common.geo.LocalMetricCrs;
+import com.aifishing.common.geo.PolygonalGeometries;
 import com.aifishing.lake.processing.dto.FeatureType;
 import com.aifishing.lake.processing.extract.GeoMetrics;
 import com.aifishing.planning.PlanningProperties;
@@ -257,6 +258,9 @@ public class FishingZoneBuilder {
         double joinMax = spatial.getZoneWaterPathJoinMaxM();
         double geodesic = GeoMetrics.distanceM(nearest[0], nearest[1]);
         if (geodesic > joinMax) {
+            return new PairEval(null, false, true);
+        }
+        if (lake.crossesIsland(nearest[0], nearest[1])) {
             return new PairEval(null, false, true);
         }
         if (!lake.landCrossing(nearest[0], nearest[1])) {
@@ -602,7 +606,7 @@ public class FishingZoneBuilder {
         Geometry water = concave;
         if (lake.hasWater()) {
             try {
-                water = lake.water().intersection(concave);
+                water = PolygonalGeometries.of(lake.water().intersection(concave));
             } catch (RuntimeException ex) {
                 return null;
             }
@@ -610,7 +614,7 @@ public class FishingZoneBuilder {
         for (Geometry island : lake.islands()) {
             if (island != null && !island.isEmpty() && water != null && !water.isEmpty()) {
                 try {
-                    water = water.difference(island);
+                    water = PolygonalGeometries.of(water.difference(island));
                 } catch (Exception ignored) {
                     // keep previous
                 }

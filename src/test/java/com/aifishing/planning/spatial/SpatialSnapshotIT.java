@@ -29,6 +29,7 @@ import java.util.concurrent.Executors;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.is;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -69,11 +70,19 @@ class SpatialSnapshotIT extends AbstractIntegrationTest {
         UUID tripId = saveShoreTrip();
         var strategy = strategyRunRepository.save(PlanningFixtures.completedStrategy(
                 tripId, PlanningFixtures.profile(), objectMapper));
-        mockMvc.perform(asDev(post("/api/v1/trips/" + tripId + "/plan")
+        String body = mockMvc.perform(asDev(post("/api/v1/trips/" + tripId + "/plan")
                         .content("{\"strategyRunId\":\"" + strategy.getId() + "\"}")))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status", is("FAILED")))
-                .andExpect(jsonPath("$.errorMessage", is("SPATIAL_SNAPSHOT_NOT_READY")));
+                .andExpect(jsonPath("$.errorMessage", is("SPATIAL_SNAPSHOT_NOT_READY")))
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+        String runId = objectMapper.readTree(body).get("planningRunId").asText();
+        mockMvc.perform(asDev(get("/api/v1/trips/" + tripId + "/planning-runs/" + runId)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.usageMetadata.profiler").exists())
+                .andExpect(jsonPath("$.usageMetadata.profiler.stagesMs").exists());
     }
 
     @Test
@@ -173,6 +182,7 @@ class SpatialSnapshotIT extends AbstractIntegrationTest {
     @Test
     void G_lazyWaterPathIsPersistedOnTheSnapshot() {
         seedFeatures();
+        seedClusterMembers();
         SpatialPlanningSnapshot ready = spatialSnapshotJob.build(
                 DevSeedIds.LAKE_ID, Pipeline.GIS, PlanningFixtures.ANALYSIS_VERSION);
         SpatialSnapshotView view = snapshotService.load(ready.getId());
@@ -265,6 +275,36 @@ class SpatialSnapshotIT extends AbstractIntegrationTest {
         Number theoretical = (Number) ready.getCounts().get("theoreticalPairCount");
         assertThat(theoretical.longValue()).isGreaterThan(0);
         assertThat(neighbor.longValue()).isLessThanOrEqualTo(theoretical.longValue());
+    }
+
+    private void seedClusterMembers() {
+        featureRepository.save(PlanningFixtures.feature(
+                DevSeedIds.LAKE_ID,
+                FeatureType.FLAT,
+                ProcessingFixtures.polygonSquare(PlanningFixtures.HEAD_LNG + 0.00025, PlanningFixtures.HEAD_LAT + 0.00025, 40),
+                2.5,
+                3.5,
+                0.88,
+                PlanningFixtures.ANALYSIS_VERSION
+        ));
+        featureRepository.save(PlanningFixtures.feature(
+                DevSeedIds.LAKE_ID,
+                FeatureType.HUMP,
+                ProcessingFixtures.polygonSquare(PlanningFixtures.HEAD_LNG + 0.00045, PlanningFixtures.HEAD_LAT + 0.00025, 36),
+                2.5,
+                3.5,
+                0.86,
+                PlanningFixtures.ANALYSIS_VERSION
+        ));
+        featureRepository.save(PlanningFixtures.feature(
+                DevSeedIds.LAKE_ID,
+                FeatureType.DROP_OFF,
+                ProcessingFixtures.polygonSquare(PlanningFixtures.HEAD_LNG + 0.00025, PlanningFixtures.HEAD_LAT + 0.00045, 36),
+                3.0,
+                4.0,
+                0.84,
+                PlanningFixtures.ANALYSIS_VERSION
+        ));
     }
 
     private void seedFeatures() {

@@ -16,10 +16,18 @@ springdoc:
     enabled: false
 
 app:
+  guidance:
+    runtime-mode: OPENAI
   seed:
     enabled: false
   admin:
     enabled: true
+  ops:
+    jobs:
+      launcher: ecs
+      running-stale: 15m
+      ecs:
+        max-concurrent: 2
   raw:
     storage: s3
   processing:

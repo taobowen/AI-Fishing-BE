@@ -18,6 +18,7 @@ public record UpdateTripRequest(
         FishSpecies primaryTargetSpecies,
         List<FishSpecies> secondaryTargetSpecies,
         LocalDate plannedDate,
+        LocalDate plannedEndDate,
         @JsonDeserialize(using = FlexibleLocalTimeDeserializer.class) LocalTime fishingStartTime,
         @JsonDeserialize(using = FlexibleLocalTimeDeserializer.class) LocalTime fishingEndTime,
         UUID boatId,

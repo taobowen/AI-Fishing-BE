@@ -72,7 +72,13 @@ class UserGeneratePlanIT extends AbstractIntegrationTest {
                 .getResponse()
                 .getContentAsString();
         String strategyRunId = objectMapper.readTree(body).get("plan").get("strategyRunId").asText();
+        String planningRunId = objectMapper.readTree(body).get("planningRunId").asText();
         org.assertj.core.api.Assertions.assertThat(strategyRunRepository.findById(UUID.fromString(strategyRunId))).isPresent();
+        mockMvc.perform(asDev(get("/api/v1/trips/" + tripId + "/planning-runs/" + planningRunId)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.usageMetadata.profiler").exists())
+                .andExpect(jsonPath("$.usageMetadata.profiler.stagesMs").exists())
+                .andExpect(jsonPath("$.usageMetadata.profiler.stagesMs.BEAM_SEARCH").exists());
         verify(fishingStrategyService).generate(tripId, Pipeline.GIS);
 
         mockMvc.perform(asOther(post("/api/v1/trips/" + tripId + "/plan").content("{}")))

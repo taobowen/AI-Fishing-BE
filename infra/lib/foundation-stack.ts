@@ -23,6 +23,7 @@ import {
   UserPoolGroup,
   UserPoolIdentityProviderApple,
   UserPoolIdentityProviderGoogle,
+  VerificationEmailStyle,
 } from "aws-cdk-lib/aws-cognito";
 import * as path from "path";
 import {
@@ -37,6 +38,10 @@ import { BlockPublicAccess, Bucket, BucketEncryption } from "aws-cdk-lib/aws-s3"
 import { Secret } from "aws-cdk-lib/aws-secretsmanager";
 import { Construct } from "constructs";
 import { StageConfig } from "./config";
+import {
+  COGNITO_VERIFICATION_EMAIL_BODY,
+  COGNITO_VERIFICATION_EMAIL_SUBJECT,
+} from "./cognito-email";
 
 export interface FoundationStackProps extends StackProps {
   config: StageConfig;
@@ -87,9 +92,9 @@ export class FoundationStack extends Stack {
     this.rdsSecurityGroup = new SecurityGroup(this, "RdsSg", {
       vpc: this.vpc,
       allowAllOutbound: false,
-      description: "RDS PostgreSQL from ECS only",
+      description: "RDS PostgreSQL from API ECS; worker ingress is added by ApiStack",
     });
-    this.rdsSecurityGroup.addIngressRule(this.ecsSecurityGroup, Port.tcp(5432), "ECS to Postgres");
+    this.rdsSecurityGroup.addIngressRule(this.ecsSecurityGroup, Port.tcp(5432), "ECS API to Postgres");
 
     this.bucket = new Bucket(this, "Artifacts", {
       blockPublicAccess: BlockPublicAccess.BLOCK_ALL,
@@ -191,6 +196,11 @@ export class FoundationStack extends Stack {
       signInAliases: { email: true, phone: true },
       autoVerify: { email: true, phone: true },
       selfSignUpEnabled: true,
+      userVerification: {
+        emailSubject: COGNITO_VERIFICATION_EMAIL_SUBJECT,
+        emailBody: COGNITO_VERIFICATION_EMAIL_BODY,
+        emailStyle: VerificationEmailStyle.CODE,
+      },
       standardAttributes: {
         email: { required: false, mutable: true },
         phoneNumber: { required: false, mutable: true },

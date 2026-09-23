@@ -2,6 +2,8 @@ package com.aifishing.webquota.service;
 
 import com.aifishing.auth.CurrentUser;
 import com.aifishing.common.exception.BadRequestException;
+import com.aifishing.planning.domain.PlanningRun;
+import com.aifishing.planning.domain.PlanningRunStatus;
 import com.aifishing.planning.dto.GeneratePlanResponse;
 import com.aifishing.planning.repo.PlanningRunRepository;
 import com.aifishing.planning.repo.TripPlanRepository;
@@ -20,6 +22,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -84,6 +87,15 @@ public class WebPlanQuotaService {
     }
 
     @Transactional
+    public Optional<GeneratePlanResponse> replayIfInProgress(UUID userId, String idempotencyKey) {
+        return requestRepository.findByUserIdAndIdempotencyKey(userId, idempotencyKey)
+                .filter(row -> row.getStatus() == WebPlanRequestStatus.STARTED && row.getPlanningRunId() != null)
+                .flatMap(row -> planningRunRepository.findById(row.getPlanningRunId()))
+                .filter(run -> run.getStatus() == PlanningRunStatus.RUNNING)
+                .map(run -> assembler.toGenerateResponse(run, null, List.of()));
+    }
+
+    @Transactional
     public void precheck(UUID userId) {
         UserWebPlanEntitlement row = entitlement(userId);
         if (row.remaining() <= 0) {
@@ -99,6 +111,9 @@ public class WebPlanQuotaService {
             WebPlanGenerationRequest row = existing.get();
             if (row.getStatus() == WebPlanRequestStatus.COMPLETED && row.getTripPlanId() != null) {
                 throw new CompletedIdempotentGeneration(row.getPlanningRunId(), row.getTripPlanId());
+            }
+            if (row.getStatus() == WebPlanRequestStatus.STARTED && isRunning(row.getPlanningRunId())) {
+                throw new InProgressIdempotentGeneration(row.getPlanningRunId());
             }
             row.setTripId(tripId);
             row.setPlanningRunId(planningRunId);
@@ -120,6 +135,9 @@ public class WebPlanQuotaService {
                     .orElseThrow(() -> ex);
             if (raced.getStatus() == WebPlanRequestStatus.COMPLETED && raced.getTripPlanId() != null) {
                 throw new CompletedIdempotentGeneration(raced.getPlanningRunId(), raced.getTripPlanId());
+            }
+            if (raced.getStatus() == WebPlanRequestStatus.STARTED && isRunning(raced.getPlanningRunId())) {
+                throw new InProgressIdempotentGeneration(raced.getPlanningRunId());
             }
             throw new BadRequestException("GENERATION_IN_PROGRESS", "A plan is already being generated for this request");
         }
@@ -172,6 +190,19 @@ public class WebPlanQuotaService {
         });
     }
 
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public void markFailedByPlanningRun(UUID planningRunId) {
+        if (planningRunId == null) {
+            return;
+        }
+        requestRepository.findFirstByPlanningRunId(planningRunId).ifPresent(row -> {
+            if (row.getStatus() != WebPlanRequestStatus.COMPLETED) {
+                row.setStatus(WebPlanRequestStatus.FAILED);
+                requestRepository.save(row);
+            }
+        });
+    }
+
     public Optional<GeneratePlanResponse> toResponse(UUID planningRunId, UUID tripPlanId) {
         if (planningRunId == null || tripPlanId == null) {
             return Optional.empty();
@@ -188,6 +219,16 @@ public class WebPlanQuotaService {
     public GeneratePlanResponse requireReplay(CompletedIdempotentGeneration replay) {
         return toResponse(replay.planningRunId(), replay.tripPlanId())
                 .orElseThrow(() -> new BadRequestException("IDEMPOTENT_PLAN_MISSING", "Previous plan could not be loaded"));
+    }
+
+    private boolean isRunning(UUID planningRunId) {
+        if (planningRunId == null) {
+            return false;
+        }
+        return planningRunRepository.findById(planningRunId)
+                .map(PlanningRun::getStatus)
+                .filter(status -> status == PlanningRunStatus.RUNNING)
+                .isPresent();
     }
 
     private UserWebPlanEntitlement entitlement(UUID userId) {
@@ -228,6 +269,18 @@ public class WebPlanQuotaService {
 
         public UUID tripPlanId() {
             return tripPlanId;
+        }
+    }
+
+    public static final class InProgressIdempotentGeneration extends RuntimeException {
+        private final UUID planningRunId;
+
+        public InProgressIdempotentGeneration(UUID planningRunId) {
+            this.planningRunId = planningRunId;
+        }
+
+        public UUID planningRunId() {
+            return planningRunId;
         }
     }
 }

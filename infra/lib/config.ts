@@ -15,6 +15,8 @@ export type StageConfig = {
   desiredCount: number;
   cpu: number;
   memoryMiB: number;
+  workerCpu: number;
+  workerMemoryMiB: number;
   dbInstanceClass: string;
   logRetentionDays: number;
   callbackUrls: string[];
@@ -22,6 +24,7 @@ export type StageConfig = {
   webCallbackUrls: string[];
   webLogoutUrls: string[];
   webDomain?: string;
+  nextWebDomain?: string;
   websiteCertificateArn?: string;
 };
 
@@ -63,6 +66,14 @@ function listContext(app: App, key: string, fallback: string[]): string[] {
   return fallback;
 }
 
+function withNextWebAuthUrl(urls: string[], nextWebDomain: string | undefined, path: string): string[] {
+  if (!nextWebDomain) {
+    return urls;
+  }
+  const extra = `https://${nextWebDomain}${path}`;
+  return urls.includes(extra) ? urls : [...urls, extra];
+}
+
 export function loadConfig(app: App): StageConfig {
   const googleEnabled = boolContext(app, "googleEnabled", false);
   const googleSecretArn = stringContext(app, "googleSecretArn");
@@ -74,6 +85,7 @@ export function loadConfig(app: App): StageConfig {
   if (appleEnabled && !appleSecretArn) {
     throw new Error("appleSecretArn is required when appleEnabled=true");
   }
+  const nextWebDomain = stringContext(app, "nextWebDomain", "anglerpilot.taobowen.com");
   return {
     stage: stringContext(app, "stage", "prod") ?? "prod",
     region: stringContext(app, "region", "ca-central-1") ?? "ca-central-1",
@@ -88,22 +100,33 @@ export function loadConfig(app: App): StageConfig {
     imageTag: stringContext(app, "imageTag", "dev") ?? "dev",
     desiredCount: numberContext(app, "desiredCount", 1),
     cpu: numberContext(app, "cpu", 512),
-    memoryMiB: numberContext(app, "memoryMiB", 1024),
+    memoryMiB: numberContext(app, "memoryMiB", 2048),
+    workerCpu: numberContext(app, "workerCpu", 1024),
+    workerMemoryMiB: numberContext(app, "workerMemoryMiB", 4096),
     dbInstanceClass: stringContext(app, "dbInstanceClass", "t4g.small") ?? "t4g.small",
     logRetentionDays: numberContext(app, "logRetentionDays", 14),
     callbackUrls: listContext(app, "callbackUrls", ["aifishing://auth"]),
     logoutUrls: listContext(app, "logoutUrls", ["aifishing://auth"]),
-    webCallbackUrls: listContext(app, "webCallbackUrls", [
-      "http://localhost:3000/auth/callback/",
-      "https://onwaterguide.taobowen.com/auth/callback/",
-      "https://castwise.taobowen.com/auth/callback/",
-    ]),
-    webLogoutUrls: listContext(app, "webLogoutUrls", [
-      "http://localhost:3000/",
-      "https://onwaterguide.taobowen.com/",
-      "https://castwise.taobowen.com/",
-    ]),
+    webCallbackUrls: withNextWebAuthUrl(
+      listContext(app, "webCallbackUrls", [
+        "http://localhost:3000/auth/callback/",
+        "https://onwaterguide.taobowen.com/auth/callback/",
+        "https://castwise.taobowen.com/auth/callback/",
+      ]),
+      nextWebDomain,
+      "/auth/callback/",
+    ),
+    webLogoutUrls: withNextWebAuthUrl(
+      listContext(app, "webLogoutUrls", [
+        "http://localhost:3000/",
+        "https://onwaterguide.taobowen.com/",
+        "https://castwise.taobowen.com/",
+      ]),
+      nextWebDomain,
+      "/",
+    ),
     webDomain: stringContext(app, "webDomain", "onwaterguide.taobowen.com"),
+    nextWebDomain,
     websiteCertificateArn: stringContext(
       app,
       "websiteCertificateArn",

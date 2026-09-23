@@ -22,6 +22,8 @@ public record WaypointProgressResponse(
         Instant skippedAt,
         int accumulatedDwellSeconds,
         Double closestDistanceM,
-        List<String> recommendedTechniques
+        List<String> recommendedTechniques,
+        Instant recommendedStartAt,
+        Instant recommendedEndAt
 ) {
 }

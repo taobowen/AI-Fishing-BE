@@ -1,0 +1,11 @@
+{
+  "caseId": "platform/simulation-deferred",
+  "kind": "SIMULATION",
+  "replayMode": "FROZEN_REPLAY",
+  "recomputedComponents": [],
+  "allowedActions": [],
+  "forbiddenActions": [],
+  "invariants": [],
+  "skipReason": "SIMULATION_DEFERRED",
+  "scenarioId": "simulation-placeholder"
+}

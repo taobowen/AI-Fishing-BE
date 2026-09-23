@@ -2,6 +2,7 @@ package com.aifishing.planning.spatial;
 
 import com.aifishing.common.geo.GeoMapper;
 import com.aifishing.common.geo.LocalMetricCrs;
+import com.aifishing.common.geo.PolygonalGeometries;
 import com.aifishing.lake.processing.dto.FeatureType;
 import com.aifishing.lake.processing.extract.GeoMetrics;
 import com.aifishing.planning.PlanningProperties;
@@ -71,6 +72,7 @@ public class FishingTargetBuilder {
                 out.add(built);
             }
         }
+        out = mergeCoincident(out, lake);
         GenerateProfiler.current().end(GenerateProfiler.TARGET_BUILD);
         GenerateProfiler.current().count("generatedTargetCount", out.size());
         GenerateProfiler.current().count("pathCount", out.stream().filter(s -> s.getTargetKind().isPathLike()).count());
@@ -89,33 +91,348 @@ public class FishingTargetBuilder {
             return List.of(spot);
         }
         FeatureType type = spot.getType();
-        if (type == FeatureType.DROP_OFF || type == FeatureType.ISLAND_EDGE || source.getDimension() == 1) {
+        ensureEvidence(spot);
+        if (type == FeatureType.ISLAND_EDGE) {
+            return islandEdgePaths(spot, source, lake, spatial, snapshotId);
+        }
+        if (type == FeatureType.DROP_OFF || source.getDimension() == 1) {
             GenerateProfiler.current().start(GenerateProfiler.TARGET_SPLIT);
             List<LineString> parts = splitMeaningfully(asLines(source), spatial);
             GenerateProfiler.current().end(GenerateProfiler.TARGET_SPLIT);
-            if (parts.isEmpty()) {
-                applyPoint(spot, spot.getLocation(), lake, corridorWidth(type, spatial), snapshotId, 0, "point");
-                return List.of(spot);
-            }
-            List<CandidateSpot> paths = new ArrayList<>();
-            double chainage = 0;
-            for (int i = 0; i < parts.size(); i++) {
-                CandidateSpot copy = i == 0 ? spot : copySpot(spot);
-                double length = GeoMetrics.lengthM(parts.get(i));
-                String reason = parts.size() == 1 ? "whole" : (length >= spatial.getMaxSegmentLengthM() - 1 ? "max_length" : "orientation_change");
-                applyPath(copy, parts.get(i), lake, corridorWidth(type, spatial), snapshotId, i, chainage, chainage + length, reason);
-                chainage += length;
-                paths.add(copy);
-            }
-            return paths;
+            return splitPaths(spot, parts, lake, spatial, snapshotId, corridorWidth(type, spatial));
         }
-        if ((type == FeatureType.HUMP || type == FeatureType.FLAT || type == FeatureType.BASIN || type == FeatureType.POINT)
-                && source.getDimension() >= 2
-                && GeoMetrics.areaM2(source) >= 400) {
-            return polygonPrimitives(spot, source, lake, spatial, snapshotId);
+        if (type == FeatureType.HUMP || type == FeatureType.BASIN) {
+            applyRepresentativePoint(spot, source, lake, spatial.getCorridorWidthDefaultM(), snapshotId, "representative_point");
+            return List.of(spot);
+        }
+        if (type == FeatureType.FLAT && source.getDimension() >= 2) {
+            return flatTargets(spot, source, lake, spatial, snapshotId);
         }
         applyPoint(spot, spot.getLocation(), lake, spatial.getCorridorWidthDefaultM(), snapshotId, 0, "point");
         return List.of(spot);
+    }
+
+    private List<CandidateSpot> islandEdgePaths(
+            CandidateSpot spot,
+            Geometry source,
+            LakePlanningGeometry lake,
+            PlanningProperties.Spatial spatial,
+            UUID snapshotId
+    ) {
+        GenerateProfiler.current().start(GenerateProfiler.TARGET_SPLIT);
+        List<LineString> parts = islandEdgeParts(source, spatial);
+        GenerateProfiler.current().end(GenerateProfiler.TARGET_SPLIT);
+        return splitPaths(spot, parts, lake, spatial, snapshotId, corridorWidth(FeatureType.ISLAND_EDGE, spatial));
+    }
+
+    private List<LineString> islandEdgeParts(Geometry source, PlanningProperties.Spatial spatial) {
+        List<LineString> shores = new ArrayList<>();
+        if (source instanceof org.locationtech.jts.geom.Polygon polygon) {
+            shores.addAll(oppositeShores(polygon.getExteriorRing()));
+        } else if (source instanceof org.locationtech.jts.geom.MultiPolygon multi) {
+            for (int i = 0; i < multi.getNumGeometries(); i++) {
+                if (multi.getGeometryN(i) instanceof org.locationtech.jts.geom.Polygon polygon) {
+                    shores.addAll(oppositeShores(polygon.getExteriorRing()));
+                }
+            }
+        } else {
+            for (LineString line : asLines(source)) {
+                shores.addAll(isClosedLoop(line) ? oppositeShores(line) : List.of(line));
+            }
+        }
+        List<LineString> parts = new ArrayList<>();
+        for (LineString shore : shores) {
+            for (LineString turn : splitAtTurns(shore)) {
+                for (LineString piece : splitLine(turn, spatial.getMaxSegmentLengthM())) {
+                    if (GeoMetrics.lengthM(piece) >= 30) {
+                        parts.add(piece);
+                    }
+                }
+            }
+        }
+        return parts;
+    }
+
+    private List<LineString> oppositeShores(LineString ring) {
+        if (ring == null || ring.getNumPoints() < 4) {
+            return ring == null ? List.of() : List.of(ring);
+        }
+        int count = ring.getNumPoints();
+        boolean closed = ring.getCoordinateN(0).equals2D(ring.getCoordinateN(count - 1));
+        int unique = closed ? count - 1 : count;
+        if (unique < 4) {
+            return List.of(ring);
+        }
+        int bestI = 0;
+        int bestJ = 1;
+        double best = -1;
+        for (int i = 0; i < unique; i++) {
+            for (int j = i + 1; j < unique; j++) {
+                double distance = GeoMetrics.distanceM(
+                        point(ring.getCoordinateN(i)),
+                        point(ring.getCoordinateN(j))
+                );
+                if (distance > best) {
+                    best = distance;
+                    bestI = i;
+                    bestJ = j;
+                }
+            }
+        }
+        List<LineString> shores = new ArrayList<>();
+        LineString forward = chain(ring, bestI, bestJ, unique);
+        LineString backward = chain(ring, bestJ, bestI, unique);
+        if (forward != null) {
+            shores.add(forward);
+        }
+        if (backward != null) {
+            shores.add(backward);
+        }
+        return shores.isEmpty() ? List.of(ring) : shores;
+    }
+
+    private LineString chain(LineString ring, int from, int to, int count) {
+        List<Coordinate> coordinates = new ArrayList<>();
+        int index = from;
+        coordinates.add(ring.getCoordinateN(index));
+        int guard = 0;
+        while (index != to && guard <= count) {
+            index = (index + 1) % count;
+            coordinates.add(ring.getCoordinateN(index));
+            guard++;
+        }
+        if (coordinates.size() < 2) {
+            return null;
+        }
+        LineString line = factory.createLineString(coordinates.toArray(Coordinate[]::new));
+        line.setSRID(GeoMapper.SRID);
+        return line;
+    }
+
+    private List<CandidateSpot> flatTargets(
+            CandidateSpot spot,
+            Geometry source,
+            LakePlanningGeometry lake,
+            PlanningProperties.Spatial spatial,
+            UUID snapshotId
+    ) {
+        applyRepresentativePoint(spot, source, lake, spatial.getCorridorWidthDefaultM(), snapshotId, "flat_point");
+        List<CandidateSpot> targets = new ArrayList<>();
+        targets.add(spot);
+        LineString edge = usefulFlatEdge(source, lake, spatial);
+        if (edge == null) {
+            return targets;
+        }
+        CandidateSpot path = copySpot(spot);
+        applyPath(path, edge, lake, spatial.getCorridorWidthDefaultM(), snapshotId, 1, 0, GeoMetrics.lengthM(edge), "flat_edge");
+        if (path.getTargetKind() == TargetKind.PATH) {
+            targets.add(path);
+        }
+        return targets;
+    }
+
+    private LineString usefulFlatEdge(Geometry source, LakePlanningGeometry lake, PlanningProperties.Spatial spatial) {
+        Geometry waterGeom = waterIntersect(source, lake);
+        Geometry boundary = waterGeom == null || waterGeom.isEmpty() ? source.getBoundary() : waterGeom.getBoundary();
+        LineString longest = longestLine(boundary);
+        if (longest == null || isClosedLoop(longest)) {
+            return null;
+        }
+        double length = GeoMetrics.lengthM(longest);
+        if (length < 30 || length > spatial.getMaxSegmentLengthM()) {
+            return null;
+        }
+        return longest;
+    }
+
+    private void applyRepresentativePoint(
+            CandidateSpot spot,
+            Geometry source,
+            LakePlanningGeometry lake,
+            double widthM,
+            UUID snapshotId,
+            String reason
+    ) {
+        Geometry waterGeom = waterIntersect(source, lake);
+        Point interior = null;
+        if (waterGeom != null && !waterGeom.isEmpty() && waterGeom.getDimension() >= 2) {
+            interior = point(new InteriorPointArea(waterGeom).getInteriorPoint());
+        }
+        Point location = firstValid(interior, lake);
+        if (location == null) {
+            location = firstValid(spot.getLocation(), lake);
+        }
+        applyPoint(spot, location == null ? spot.getLocation() : location, lake, widthM, snapshotId, 0, reason);
+    }
+
+    private List<CandidateSpot> splitPaths(
+            CandidateSpot spot,
+            List<LineString> lines,
+            LakePlanningGeometry lake,
+            PlanningProperties.Spatial spatial,
+            UUID snapshotId,
+            double widthM
+    ) {
+        if (lines.isEmpty()) {
+            applyPoint(spot, spot.getLocation(), lake, widthM, snapshotId, 0, "point");
+            return List.of(spot);
+        }
+        List<CandidateSpot> paths = new ArrayList<>();
+        double chainage = 0;
+        for (int i = 0; i < lines.size(); i++) {
+            CandidateSpot copy = i == 0 ? spot : copySpot(spot);
+            double length = GeoMetrics.lengthM(lines.get(i));
+            String reason = lines.size() == 1 ? "whole" : (length >= spatial.getMaxSegmentLengthM() - 1 ? "max_length" : "orientation_change");
+            applyPath(copy, lines.get(i), lake, widthM, snapshotId, i, chainage, chainage + length, reason);
+            chainage += length;
+            paths.add(copy);
+        }
+        return paths;
+    }
+
+    private static final double COINCIDENT_M = 5.0;
+    private static final double SAME_DEPTH_M = 1.0;
+
+    private List<CandidateSpot> mergeCoincident(List<CandidateSpot> spots, LakePlanningGeometry lake) {
+        List<CandidateSpot> kept = new ArrayList<>();
+        for (CandidateSpot spot : spots) {
+            ensureEvidence(spot);
+            CandidateSpot match = null;
+            for (CandidateSpot existing : kept) {
+                if (sameOpportunity(existing, spot, lake)) {
+                    match = existing;
+                    break;
+                }
+            }
+            if (match == null) {
+                kept.add(spot);
+            } else {
+                absorb(match, spot);
+            }
+        }
+        return kept;
+    }
+
+    private boolean sameOpportunity(CandidateSpot left, CandidateSpot right, LakePlanningGeometry lake) {
+        if (left.getRepresentativeDepthM() == null || right.getRepresentativeDepthM() == null) {
+            return false;
+        }
+        if (Math.abs(left.getRepresentativeDepthM() - right.getRepresentativeDepthM()) > SAME_DEPTH_M) {
+            return false;
+        }
+        if (!geometriesCoincide(left, right)) {
+            return false;
+        }
+        Point from = left.getLocation();
+        Point to = right.getLocation();
+        if (from == null || to == null) {
+            return false;
+        }
+        if (GeoMetrics.distanceM(from, to) <= 1) {
+            return true;
+        }
+        return !lake.landCrossing(from, to);
+    }
+
+    private boolean geometriesCoincide(CandidateSpot left, CandidateSpot right) {
+        Geometry a = left.getTargetGeometry();
+        Geometry b = right.getTargetGeometry();
+        if (a == null || a.isEmpty() || b == null || b.isEmpty()) {
+            return false;
+        }
+        if (a instanceof Point && b instanceof Point) {
+            return GeoMetrics.distanceM(a, b) <= COINCIDENT_M;
+        }
+        if (a instanceof Point && b instanceof LineString) {
+            return GeoMetrics.distanceM(a, b) <= COINCIDENT_M;
+        }
+        if (b instanceof Point && a instanceof LineString) {
+            return GeoMetrics.distanceM(a, b) <= COINCIDENT_M;
+        }
+        if (a instanceof LineString && b instanceof LineString) {
+            return pathsCoincide((LineString) a, (LineString) b);
+        }
+        return GeoMetrics.distanceM(a, b) <= COINCIDENT_M;
+    }
+
+    private boolean pathsCoincide(LineString left, LineString right) {
+        double shorter = Math.min(GeoMetrics.lengthM(left), GeoMetrics.lengthM(right));
+        if (shorter < 1) {
+            return false;
+        }
+        try {
+            Geometry buffered = left.buffer(GeoMetrics.bufferDegrees(COINCIDENT_M, GeoMetrics.referenceLat(left)));
+            Geometry overlap = buffered.intersection(right);
+            return overlap != null && GeoMetrics.lengthM(overlap) >= shorter * 0.8;
+        } catch (RuntimeException ex) {
+            return false;
+        }
+    }
+
+    private void absorb(CandidateSpot kept, CandidateSpot other) {
+        kept.setSourceFeatureIds(unionIds(kept.getSourceFeatureIds(), other.getSourceFeatureIds()));
+        kept.setEvidenceTypes(unionTypes(kept.getEvidenceTypes(), other.getEvidenceTypes()));
+        List<UUID> coverage = new ArrayList<>(kept.coverageIds());
+        for (UUID id : other.coverageIds()) {
+            if (!coverage.contains(id)) {
+                coverage.add(id);
+            }
+        }
+        for (UUID id : kept.getSourceFeatureIds()) {
+            if (!coverage.contains(id)) {
+                coverage.add(id);
+            }
+        }
+        kept.setCoverageIds(coverage);
+        if (other.getMinDepthM() != null) {
+            kept.setMinDepthM(kept.getMinDepthM() == null
+                    ? other.getMinDepthM()
+                    : Math.min(kept.getMinDepthM(), other.getMinDepthM()));
+        }
+        if (other.getMaxDepthM() != null) {
+            kept.setMaxDepthM(kept.getMaxDepthM() == null
+                    ? other.getMaxDepthM()
+                    : Math.max(kept.getMaxDepthM(), other.getMaxDepthM()));
+        }
+    }
+
+    private static List<UUID> unionIds(List<UUID> left, List<UUID> right) {
+        List<UUID> ids = new ArrayList<>();
+        if (left != null) {
+            ids.addAll(left);
+        }
+        if (right != null) {
+            for (UUID id : right) {
+                if (id != null && !ids.contains(id)) {
+                    ids.add(id);
+                }
+            }
+        }
+        return ids;
+    }
+
+    private static List<FeatureType> unionTypes(List<FeatureType> left, List<FeatureType> right) {
+        List<FeatureType> types = new ArrayList<>();
+        if (left != null) {
+            types.addAll(left);
+        }
+        if (right != null) {
+            for (FeatureType type : right) {
+                if (type != null && !types.contains(type)) {
+                    types.add(type);
+                }
+            }
+        }
+        return types;
+    }
+
+    private static void ensureEvidence(CandidateSpot spot) {
+        if ((spot.getSourceFeatureIds() == null || spot.getSourceFeatureIds().isEmpty()) && spot.getFeatureId() != null) {
+            spot.setSourceFeatureIds(List.of(spot.getFeatureId()));
+        }
+        if ((spot.getEvidenceTypes() == null || spot.getEvidenceTypes().isEmpty()) && spot.getType() != null) {
+            spot.setEvidenceTypes(List.of(spot.getType()));
+        }
     }
 
     private void applyPoint(CandidateSpot spot, Point location, LakePlanningGeometry lake, double widthM) {
@@ -148,54 +465,6 @@ public class FishingTargetBuilder {
             spot.setStaticSamples(List.of(new SpatialUtility.Sample(water, 0)));
         }
         assignIdentity(spot, snapshotId, index, TargetKind.POINT);
-    }
-
-    private List<CandidateSpot> polygonPrimitives(
-            CandidateSpot spot,
-            Geometry source,
-            LakePlanningGeometry lake,
-            PlanningProperties.Spatial spatial,
-            UUID snapshotId
-    ) {
-        Geometry waterGeom = waterIntersect(source, lake);
-        List<CandidateSpot> out = new ArrayList<>();
-        if (waterGeom == null || waterGeom.isEmpty()) {
-            applyPoint(spot, spot.getLocation(), lake, spatial.getCorridorWidthDefaultM(), snapshotId, 0, "polygon_fallback_point");
-            return List.of(spot);
-        }
-        LineString boundary = longestLine(waterGeom.getBoundary());
-        if (boundary != null && GeoMetrics.lengthM(boundary) >= 30) {
-            List<LineString> parts = splitMeaningfully(List.of(boundary), spatial);
-            double chainage = 0;
-            for (int i = 0; i < parts.size(); i++) {
-                CandidateSpot pathSpot = i == 0 && out.isEmpty() ? spot : copySpot(spot);
-                double length = GeoMetrics.lengthM(parts.get(i));
-                applyPath(pathSpot, parts.get(i), lake, spatial.getCorridorWidthDefaultM(), snapshotId, i, chainage, chainage + length, "polygon_boundary");
-                chainage += length;
-                out.add(pathSpot);
-            }
-        }
-        Point interior = firstValid(point(new InteriorPointArea(waterGeom).getInteriorPoint()), lake);
-        if (interior != null) {
-            CandidateSpot anchor = out.isEmpty() ? spot : copySpot(spot);
-            applyPoint(anchor, interior, lake, spatial.getCorridorWidthDefaultM(), snapshotId, out.size(), "polygon_anchor");
-            List<SpatialUtility.Sample> samples = new ArrayList<>();
-            samples.add(new SpatialUtility.Sample(interior, 0));
-            List<VisitPortal> portals = boundaryPortals(waterGeom, lake, 4);
-            for (int i = 0; i < portals.size(); i++) {
-                samples.add(new SpatialUtility.Sample(portals.get(i).point(), (i + 1) / (double) (portals.size() + 1)));
-            }
-            anchor.setStaticSamples(samples);
-            if (out.isEmpty()) {
-                return List.of(anchor);
-            }
-            out.add(anchor);
-        }
-        if (out.isEmpty()) {
-            applyPoint(spot, spot.getLocation(), lake, spatial.getCorridorWidthDefaultM(), snapshotId, 0, "polygon_data_limitation");
-            return List.of(spot);
-        }
-        return out;
     }
 
     private void applyPath(
@@ -256,7 +525,16 @@ public class FishingTargetBuilder {
                 ? UUID.randomUUID()
                 : SpatialIds.targetId(snapshotId, spot.getFeatureId(), index, kind, fingerprint);
         spot.setFishingTargetId(id);
-        spot.setCoverageIds(List.of(id));
+        List<UUID> coverage = new ArrayList<>();
+        coverage.add(id);
+        if (spot.getSourceFeatureIds() != null) {
+            for (UUID sourceId : spot.getSourceFeatureIds()) {
+                if (sourceId != null && !coverage.contains(sourceId)) {
+                    coverage.add(sourceId);
+                }
+            }
+        }
+        spot.setCoverageIds(coverage);
     }
 
     private static String fingerprint(Geometry geometry, int index) {
@@ -288,11 +566,16 @@ public class FishingTargetBuilder {
         if (geometry == null || geometry.isEmpty() || !lake.hasWater()) {
             return null;
         }
-        Geometry water = lake.water().intersection(geometry);
+        Geometry water;
+        try {
+            water = PolygonalGeometries.of(lake.water().intersection(geometry));
+        } catch (RuntimeException ex) {
+            return null;
+        }
         for (Geometry island : lake.islands()) {
             if (island != null && !island.isEmpty() && water != null && !water.isEmpty()) {
                 try {
-                    water = water.difference(island);
+                    water = PolygonalGeometries.of(water.difference(island));
                 } catch (Exception ignored) {
                     // keep previous
                 }
@@ -328,23 +611,6 @@ public class FishingTargetBuilder {
             }
         }
         return firstValid(origin, lake);
-    }
-
-    private List<VisitPortal> boundaryPortals(Geometry geometry, LakePlanningGeometry lake, int count) {
-        Coordinate[] coords = geometry.getBoundary().getCoordinates();
-        if (coords.length < 2) {
-            Point interior = firstValid(geometry.getInteriorPoint(), lake);
-            return interior == null ? List.of() : List.of(new VisitPortal("p0", interior));
-        }
-        List<VisitPortal> portals = new ArrayList<>();
-        int step = Math.max(1, coords.length / count);
-        for (int i = 0; i < coords.length && portals.size() < count; i += step) {
-            Point candidate = firstValid(point(coords[i]), lake);
-            if (candidate != null) {
-                portals.add(new VisitPortal("p" + portals.size(), candidate));
-            }
-        }
-        return portals;
     }
 
     private List<LineString> splitMeaningfully(List<LineString> lines, PlanningProperties.Spatial spatial) {
@@ -581,6 +847,10 @@ public class FishingTargetBuilder {
         copy.setWindowSpecific(source.isWindowSpecific());
         copy.setRawOrientationDeg(source.getRawOrientationDeg());
         copy.setLightPreference(source.getLightPreference());
+        copy.setSourceFeatureIds(source.getSourceFeatureIds());
+        copy.setEvidenceTypes(source.getEvidenceTypes());
+        copy.setMinDepthM(source.getMinDepthM());
+        copy.setMaxDepthM(source.getMaxDepthM());
         return copy;
     }
 

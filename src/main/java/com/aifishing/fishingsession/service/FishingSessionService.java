@@ -14,6 +14,7 @@ import com.aifishing.fishingsession.domain.ClientEventType;
 import com.aifishing.fishingsession.domain.FishingSession;
 import com.aifishing.fishingsession.domain.LocationQuality;
 import com.aifishing.fishingsession.domain.SessionClientEvent;
+import com.aifishing.fishingsession.domain.SessionGuidanceMode;
 import com.aifishing.fishingsession.domain.SessionLocationPoint;
 import com.aifishing.fishingsession.domain.SessionWaypointProgress;
 import com.aifishing.fishingsession.domain.WaypointProgressStatus;
@@ -25,6 +26,7 @@ import com.aifishing.fishingsession.dto.FishingSessionResponse;
 import com.aifishing.fishingsession.dto.LocationBatchRequest;
 import com.aifishing.fishingsession.dto.LocationPointRequest;
 import com.aifishing.fishingsession.dto.NavigationResponse;
+import com.aifishing.fishingsession.dto.SessionResultsResponse;
 import com.aifishing.fishingsession.dto.SessionTrackResponse;
 import com.aifishing.fishingsession.dto.StartFishingSessionRequest;
 import com.aifishing.fishingsession.repo.FishingSessionRepository;
@@ -40,6 +42,12 @@ import com.aifishing.planning.repo.TripWaypointRepository;
 import com.aifishing.planning.spatial.TransitLegMaterializer;
 import com.aifishing.planning.spatial.domain.TripPlanTransitLeg;
 import com.aifishing.planning.spatial.repo.TripPlanTransitLegRepository;
+import com.aifishing.guidance.contracts.FishingActivityState;
+import com.aifishing.guidance.events.ActivityStateUpdater;
+import com.aifishing.guidance.empirical.EmpiricalAggregationService;
+import com.aifishing.guidance.events.SessionEventWriter;
+import com.aifishing.guidance.horizon.ActiveGuidanceTarget;
+import com.aifishing.guidance.spi.LiveWaypointActivityStore;
 import com.aifishing.trip.domain.Trip;
 import com.aifishing.trip.repo.TripRepository;
 import org.locationtech.jts.geom.Point;
@@ -59,6 +67,7 @@ import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 
@@ -88,6 +97,12 @@ public class FishingSessionService {
     private final SessionMapper mapper;
     private final TransitLegMaterializer transitLegMaterializer;
     private final TripPlanTransitLegRepository transitLegRepository;
+    private final SessionEventWriter sessionEventWriter;
+    private final ActivityStateUpdater activityStateUpdater;
+    private final LiveWaypointActivityStore livePositionStore;
+    private final EmpiricalAggregationService empiricalAggregationService;
+    private final AdHocFishingService adHocFishingService;
+    private final ActiveGuidanceTarget activeGuidanceTarget;
 
     public FishingSessionService(
             CurrentUser currentUser,
@@ -107,7 +122,13 @@ public class FishingSessionService {
             WaypointProgressMachine waypointMachine,
             SessionMapper mapper,
             TransitLegMaterializer transitLegMaterializer,
-            TripPlanTransitLegRepository transitLegRepository
+            TripPlanTransitLegRepository transitLegRepository,
+            SessionEventWriter sessionEventWriter,
+            ActivityStateUpdater activityStateUpdater,
+            LiveWaypointActivityStore livePositionStore,
+            EmpiricalAggregationService empiricalAggregationService,
+            AdHocFishingService adHocFishingService,
+            ActiveGuidanceTarget activeGuidanceTarget
     ) {
         this.currentUser = currentUser;
         this.clock = clock;
@@ -127,6 +148,12 @@ public class FishingSessionService {
         this.mapper = mapper;
         this.transitLegMaterializer = transitLegMaterializer;
         this.transitLegRepository = transitLegRepository;
+        this.sessionEventWriter = sessionEventWriter;
+        this.activityStateUpdater = activityStateUpdater;
+        this.livePositionStore = livePositionStore;
+        this.empiricalAggregationService = empiricalAggregationService;
+        this.adHocFishingService = adHocFishingService;
+        this.activeGuidanceTarget = activeGuidanceTarget;
     }
 
     @Transactional
@@ -134,7 +161,8 @@ public class FishingSessionService {
         UUID userId = currentUser.id();
         Trip trip = tripRepository.findByIdAndUserId(tripId, userId)
                 .orElseThrow(() -> new NotFoundException("Trip not found"));
-        if (sessionRepository.existsByUserIdAndStatusIn(userId, UNFINISHED)) {
+        boolean unfinished = sessionRepository.existsByUserIdAndStatusIn(userId, UNFINISHED);
+        if (unfinished) {
             throw new BadRequestException("An unfinished fishing session already exists");
         }
         TripPlan plan = resolveStartablePlan(trip.getId(), request == null ? null : request.tripPlanId());
@@ -152,6 +180,7 @@ public class FishingSessionService {
         session.setStartedAt(now);
         session.setStatus(FishingSessionStatus.ACTIVE);
         session.setTotalPausedSeconds(0);
+        session.setGuidanceMode(SessionGuidanceMode.orDefault(request == null ? null : request.guidanceMode()));
         sessionRepository.save(session);
 
         Set<UUID> skipIds = resolveLateStartSkips(request, waypoints, now);
@@ -175,6 +204,9 @@ public class FishingSessionService {
             progress.add(row);
         }
         progressRepository.saveAll(progress);
+        if (request != null && request.lateStart() != null) {
+            sessionEventWriter.onSessionStarted(session, request.lateStart());
+        }
         return mapper.session(
                 session,
                 progress,
@@ -186,6 +218,28 @@ public class FishingSessionService {
     @Transactional(readOnly = true)
     public FishingSessionResponse get(UUID sessionId) {
         return toResponse(requireOwned(sessionId));
+    }
+
+    @Transactional(readOnly = true)
+    public SessionResultsResponse results(UUID sessionId) {
+        FishingSession session = requireOwned(sessionId);
+        if (session.getStatus() != FishingSessionStatus.COMPLETED) {
+            throw new NotFoundException("Fishing session results not found");
+        }
+        return new SessionResultsResponse(
+                session.getId(),
+                session.getStatus(),
+                session.getStartedAt(),
+                session.getEndedAt(),
+                session.getSummary(),
+                empiricalPerformanceService.get(session.getId(), currentUser.id())
+        );
+    }
+
+    @Transactional(readOnly = true)
+    public Optional<FishingSessionResponse> currentUnfinished() {
+        return sessionRepository.findFirstByUserIdAndStatusIn(currentUser.id(), UNFINISHED)
+                .map(this::toResponse);
     }
 
     @Transactional(readOnly = true)
@@ -232,6 +286,47 @@ public class FishingSessionService {
         if (session.getStatus() == FishingSessionStatus.ACTIVE) {
             advanceFromGps(session, inserted);
         }
+        Instant activityAt = inserted.isEmpty() ? receivedAt : inserted.getLast().getRecordedAt();
+        activityStateUpdater.refresh(session, activityAt);
+        if (!inserted.isEmpty()) {
+            upsertLivePosition(session, inserted.getLast());
+        }
+        return toResponse(session);
+    }
+
+    @Transactional
+    public FishingSessionResponse startAdHocFishing(UUID sessionId, ClientEventRequest request) {
+        FishingSession session = requireOwned(sessionId);
+        if (isDuplicateEvent(session, request)) {
+            return toResponse(session);
+        }
+        requireMutable(session);
+        adHocFishingService.start(session, request);
+        persistEvent(session, request, ClientEventType.START_AD_HOC_FISHING, Map.of());
+        return toResponse(session);
+    }
+
+    @Transactional
+    public FishingSessionResponse endAdHocFishing(UUID sessionId, ClientEventRequest request) {
+        FishingSession session = requireOwned(sessionId);
+        if (isDuplicateEvent(session, request)) {
+            return toResponse(session);
+        }
+        requireMutable(session);
+        adHocFishingService.end(session, request);
+        persistEvent(session, request, ClientEventType.END_AD_HOC_FISHING, Map.of());
+        return toResponse(session);
+    }
+
+    @Transactional
+    public FishingSessionResponse dismissStationaryPrompt(UUID sessionId, ClientEventRequest request) {
+        FishingSession session = requireOwned(sessionId);
+        requireMutable(session);
+        requireEvent(request);
+        SessionLocationPoint last = locationPointRepository
+                .findFirstByFishingSessionIdAndQualityOrderByRecordedAtDesc(session.getId(), LocationQuality.ACCEPTED)
+                .orElse(null);
+        adHocFishingService.dismissStationaryPrompt(session, request.occurredAt(), last);
         return toResponse(session);
     }
 
@@ -263,6 +358,7 @@ public class FishingSessionService {
             session.setPausedAt(request.occurredAt());
             openPauseInterval(session, request.occurredAt());
         }
+        sessionEventWriter.onPause(session, request);
         return toResponse(session);
     }
 
@@ -279,6 +375,7 @@ public class FishingSessionService {
             closeOpenPauseInterval(session, request.occurredAt());
             session.setStatus(FishingSessionStatus.ACTIVE);
         }
+        sessionEventWriter.onResume(session, request);
         return toResponse(session);
     }
 
@@ -299,6 +396,7 @@ public class FishingSessionService {
         Instant endedAt = request.occurredAt();
         foldOpenPause(session, endedAt);
         closeOpenPauseInterval(session, endedAt);
+        adHocFishingService.closeQuietly(session, endedAt);
         List<SessionWaypointProgress> progress = progressRepository.findByFishingSessionIdOrderBySequenceAsc(session.getId());
         waypointMachine.finalizeInProgress(progress, endedAt);
         progressRepository.saveAll(progress);
@@ -308,6 +406,8 @@ public class FishingSessionService {
         session.setSummary(buildSummary(session, progress, endedAt));
         fishingEffortService.recompute(session.getId());
         empiricalPerformanceService.recompute(session.getId());
+        empiricalAggregationService.enqueueAfterSessionRecompute(session.getId());
+        sessionEventWriter.onEnd(session, request);
         return toResponse(session);
     }
 
@@ -337,6 +437,13 @@ public class FishingSessionService {
             default -> throw new BadRequestException("Unsupported waypoint action");
         }
         progressRepository.saveAll(progress);
+        switch (type) {
+            case ARRIVE -> sessionEventWriter.onArrive(session, waypointId, request);
+            case SKIP -> sessionEventWriter.onSkip(session, waypointId, request);
+            case COMPLETE -> sessionEventWriter.onComplete(session, waypointId, request);
+            default -> {
+            }
+        }
         return toResponse(session);
     }
 
@@ -444,12 +551,24 @@ public class FishingSessionService {
         Map<UUID, TripWaypoint> waypoints = loadWaypoints(session.getTripPlanId());
         List<SessionLocationPoint> accepted = locationPointRepository
                 .findByFishingSessionIdAndQualityOrderByRecordedAtAsc(session.getId(), LocationQuality.ACCEPTED);
+        boolean freezeProgress = adHocFishingService.hasOpenStop(session.getId());
+        UUID activeTarget = freezeProgress || activeGuidanceTarget == null
+                ? null
+                : activeGuidanceTarget.resolve(session);
         for (SessionLocationPoint neu : newlyAccepted) {
             List<SessionLocationPoint> prefix = accepted.stream()
                     .filter(point -> !point.getRecordedAt().isAfter(neu.getRecordedAt()))
                     .toList();
-            waypointMachine.applyAcceptedHistory(progress, waypoints, prefix);
-            maybeCompleteReturn(session, progress, prefix);
+            if (!freezeProgress) {
+                waypointMachine.applyAcceptedHistory(progress, waypoints, prefix, activeTarget);
+                maybeCompleteReturn(session, progress, prefix);
+            }
+        }
+        if (freezeProgress) {
+            List<SessionLocationPoint> prefix = accepted.stream()
+                    .filter(point -> !point.getRecordedAt().isAfter(newlyAccepted.getLast().getRecordedAt()))
+                    .toList();
+            adHocFishingService.maybeEndFromDeparture(session, prefix);
         }
         progressRepository.saveAll(progress);
     }
@@ -557,7 +676,7 @@ public class FishingSessionService {
         }
     }
 
-    private Set<UUID> resolveLateStartSkips(
+    static Set<UUID> resolveLateStartSkips(
             StartFishingSessionRequest request,
             List<TripWaypoint> waypoints,
             Instant now
@@ -570,13 +689,10 @@ public class FishingSessionService {
             for (TripWaypoint waypoint : waypoints) {
                 if (isExpired(waypoint, now)) {
                     skipIds.add(waypoint.getId());
-                    UUID visitId = visitId(waypoint);
-                    if (visitId != null) {
-                        skipIds.add(visitId);
-                    }
                 }
             }
         }
+        // FOLLOW_FULL_PLAN and null skip none; original TripPlan clocks stay immutable.
         return skipIds;
     }
 
@@ -585,27 +701,27 @@ public class FishingSessionService {
         return departure != null && !departure.isAfter(now);
     }
 
-    private static boolean matchesSkip(Set<UUID> skipIds, TripWaypoint waypoint) {
-        if (skipIds.isEmpty()) {
+    static boolean matchesSkip(Set<UUID> skipIds, TripWaypoint waypoint) {
+        if (skipIds == null || skipIds.isEmpty()) {
             return false;
         }
         if (skipIds.contains(waypoint.getId())) {
             return true;
         }
-        UUID visitId = visitId(waypoint);
+        UUID visitId = explicitClientSkipId(waypoint);
         return visitId != null && skipIds.contains(visitId);
     }
 
-    private static UUID visitId(TripWaypoint waypoint) {
+    private static UUID explicitClientSkipId(TripWaypoint waypoint) {
         Map<String, Object> metadata = waypoint.getMetadata();
-        if (metadata != null && metadata.get("visitId") != null) {
-            try {
-                return UUID.fromString(String.valueOf(metadata.get("visitId")));
-            } catch (IllegalArgumentException ignored) {
-                return null;
-            }
+        if (metadata == null || metadata.get("visitId") == null) {
+            return null;
         }
-        return waypoint.getVisitScopeId();
+        try {
+            return UUID.fromString(String.valueOf(metadata.get("visitId")));
+        } catch (IllegalArgumentException ignored) {
+            return null;
+        }
     }
 
     private void maybeCompleteReturn(
@@ -640,12 +756,33 @@ public class FishingSessionService {
         Instant at = last.getRecordedAt();
         foldOpenPause(session, at);
         closeOpenPauseInterval(session, at);
+        adHocFishingService.closeQuietly(session, at);
         session.setStatus(FishingSessionStatus.COMPLETED);
         session.setEndedAt(at);
         session.setPausedAt(null);
         session.setSummary(buildSummary(session, progress, at));
         fishingEffortService.recompute(session.getId());
         empiricalPerformanceService.recompute(session.getId());
+        empiricalAggregationService.enqueueAfterSessionRecompute(session.getId());
+    }
+
+    private void upsertLivePosition(FishingSession session, SessionLocationPoint point) {
+        if (session == null || point == null || point.getLocation() == null) {
+            return;
+        }
+        UUID lakeId = tripRepository.findById(session.getTripId()).map(Trip::getLakeId).orElse(null);
+        FishingActivityState activity = session.getActivityState() == null
+                ? FishingActivityState.UNKNOWN
+                : session.getActivityState();
+        livePositionStore.upsertLocation(
+                session.getId(),
+                point.getLocation().getY(),
+                point.getLocation().getX(),
+                point.getRecordedAt(),
+                point.getAccuracyM() == null ? null : point.getAccuracyM().doubleValue(),
+                activity,
+                lakeId
+        );
     }
 
     private Map<UUID, TripWaypoint> loadWaypoints(UUID tripPlanId) {

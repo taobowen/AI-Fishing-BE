@@ -9,9 +9,12 @@ import org.locationtech.jts.geom.LineString;
 import org.locationtech.jts.geom.Point;
 import org.locationtech.jts.geom.PrecisionModel;
 
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.PriorityQueue;
 
@@ -29,6 +32,13 @@ public final class LakeNavRaster {
     private final byte[][] clearanceM;
     private final LocalMetricCrs.ProjectedGeometry projected;
     private final GeometryFactory factory = new GeometryFactory(new PrecisionModel(), GeoMapper.SRID);
+    private final Map<SearchKey, List<int[]>> cellPaths = new HashMap<>();
+    private int[] components;
+    private double[] dist;
+    private int[] parent;
+    private int[] touchGen;
+    private int[] seenGen;
+    private int generation;
 
     public LakeNavRaster(
             LakeNavGrid grid,
@@ -107,16 +117,34 @@ public final class LakeNavRaster {
         if (fromWgs == null || toWgs == null || fromWgs.isEmpty() || toWgs.isEmpty() || projected == null) {
             return Optional.empty();
         }
-        GenerateProfiler.current().count("astarCalls");
-        Point fromM = projected.toMetricPoint(fromWgs);
-        Point toM = projected.toMetricPoint(toWgs);
-        int[] start = snap(fromM);
-        int[] goal = snap(toM);
-        if (start == null || goal == null) {
-            return Optional.empty();
+        synchronized (this) {
+            Point fromM = projected.toMetricPoint(fromWgs);
+            Point toM = projected.toMetricPoint(toWgs);
+            int[] start = snap(fromM);
+            int[] goal = snap(toM);
+            if (start == null || goal == null || !sameComponent(start, goal)) {
+                return Optional.empty();
+            }
+            SearchKey key = new SearchKey(idx(start[0], start[1]), idx(goal[0], goal[1]), Double.doubleToRawLongBits(maxMeters));
+            List<int[]> cells = cellPaths.get(key);
+            if (cells == null && !cellPaths.containsKey(key)) {
+                GenerateProfiler.current().count("astarCalls");
+                long startedNs = System.nanoTime();
+                cells = astar(start, goal, maxMeters);
+                GenerateProfiler.current().count("astarTimeNs", Math.max(0, System.nanoTime() - startedNs));
+                cellPaths.put(key, cells);
+            }
+            return toEstimate(cells, fromWgs, toWgs, cruiseKmh);
         }
-        List<int[]> cells = astar(start, goal, maxMeters);
-        if (cells.isEmpty()) {
+    }
+
+    private Optional<LocalWaterPathEstimator.PathEstimate> toEstimate(
+            List<int[]> cells,
+            Point fromWgs,
+            Point toWgs,
+            double cruiseKmh
+    ) {
+        if (cells == null || cells.isEmpty()) {
             return Optional.empty();
         }
         List<Coordinate> coords = new ArrayList<>();
@@ -169,6 +197,74 @@ public final class LakeNavRaster {
         return projected.toWgs84Point(metric);
     }
 
+    private boolean sameComponent(int[] start, int[] goal) {
+        ensureComponents();
+        int left = components[idx(start[0], start[1])];
+        int right = components[idx(goal[0], goal[1])];
+        return left != 0 && left == right;
+    }
+
+    /**
+     * Labels navigable cells with the same adjacency A* uses, including the
+     * no-corner-cut diagonal rule. Different labels are unreachable.
+     */
+    private void ensureComponents() {
+        if (components != null) {
+            return;
+        }
+        synchronized (this) {
+            if (components != null) {
+                return;
+            }
+            int w = grid.widthCells();
+            int h = grid.heightCells();
+            int[] labels = new int[w * h];
+            int next = 1;
+            ArrayDeque<Integer> queue = new ArrayDeque<>();
+            for (int x = 0; x < w; x++) {
+                for (int y = 0; y < h; y++) {
+                    if (!nav[x][y]) {
+                        continue;
+                    }
+                    int seed = idx(x, y);
+                    if (labels[seed] != 0) {
+                        continue;
+                    }
+                    labels[seed] = next;
+                    queue.add(seed);
+                    while (!queue.isEmpty()) {
+                        int current = queue.removeFirst();
+                        int cx = current / h;
+                        int cy = current % h;
+                        for (int[] dir : ORTH) {
+                            markComponent(cx + dir[0], cy + dir[1], next, labels, queue);
+                        }
+                        for (int[] dir : DIAG) {
+                            if (!traversable(cx + dir[0], cy) || !traversable(cx, cy + dir[1])) {
+                                continue;
+                            }
+                            markComponent(cx + dir[0], cy + dir[1], next, labels, queue);
+                        }
+                    }
+                    next++;
+                }
+            }
+            components = labels;
+        }
+    }
+
+    private void markComponent(int x, int y, int label, int[] labels, ArrayDeque<Integer> queue) {
+        if (!traversable(x, y)) {
+            return;
+        }
+        int index = idx(x, y);
+        if (labels[index] != 0) {
+            return;
+        }
+        labels[index] = label;
+        queue.add(index);
+    }
+
     private int[] snap(Point metric) {
         if (metric == null || metric.isEmpty()) {
             return null;
@@ -197,31 +293,35 @@ public final class LakeNavRaster {
     }
 
     private List<int[]> astar(int[] start, int[] goal, double maxMeters) {
-        int w = grid.widthCells();
+        ensureWorkspace();
+        if (generation == Integer.MAX_VALUE) {
+            java.util.Arrays.fill(touchGen, 0);
+            java.util.Arrays.fill(seenGen, 0);
+            generation = 0;
+        }
+        generation++;
         int h = grid.heightCells();
-        double[] dist = new double[w * h];
-        int[] parent = new int[w * h];
-        java.util.Arrays.fill(dist, Double.POSITIVE_INFINITY);
-        java.util.Arrays.fill(parent, -1);
         int s = idx(start[0], start[1]);
         int g = idx(goal[0], goal[1]);
+        touchGen[s] = generation;
         dist[s] = 0;
-        PriorityQueue<int[]> open = new PriorityQueue<>(Comparator.comparingDouble(a -> dist[a[0]] + heuristic(a[0], g)));
+        parent[s] = -1;
+        PriorityQueue<int[]> open = new PriorityQueue<>(Comparator.comparingDouble(a -> distAt(a[0]) + heuristic(a[0], g)));
         open.add(new int[]{s});
-        boolean[] seen = new boolean[w * h];
         while (!open.isEmpty()) {
             int current = open.poll()[0];
-            if (seen[current]) {
+            if (seenGen[current] == generation) {
                 continue;
             }
-            seen[current] = true;
+            seenGen[current] = generation;
+            GenerateProfiler.current().count("astarExpandedCells");
             if (current == g) {
                 break;
             }
             int cx = current / h;
             int cy = current % h;
             for (int[] dir : ORTH) {
-                consider(cx, cy, dir[0], dir[1], current, dist, parent, open, grid.cellSizeM(), maxMeters);
+                consider(cx, cy, dir[0], dir[1], current, open, grid.cellSizeM(), maxMeters);
             }
             for (int[] dir : DIAG) {
                 int ox = cx + dir[0];
@@ -231,10 +331,10 @@ public final class LakeNavRaster {
                 if (!traversable(ox, oy) || !traversable(px, py)) {
                     continue;
                 }
-                consider(cx, cy, dir[0], dir[1], current, dist, parent, open, grid.cellSizeM() * Math.sqrt(2), maxMeters);
+                consider(cx, cy, dir[0], dir[1], current, open, grid.cellSizeM() * Math.sqrt(2), maxMeters);
             }
         }
-        if (dist[g] == Double.POSITIVE_INFINITY) {
+        if (touchGen[g] != generation || dist[g] == Double.POSITIVE_INFINITY) {
             return List.of();
         }
         List<int[]> cells = new ArrayList<>();
@@ -246,14 +346,28 @@ public final class LakeNavRaster {
         return cells;
     }
 
+    private void ensureWorkspace() {
+        int cells = grid.widthCells() * grid.heightCells();
+        if (dist != null && dist.length == cells) {
+            return;
+        }
+        dist = new double[cells];
+        parent = new int[cells];
+        touchGen = new int[cells];
+        seenGen = new int[cells];
+        generation = 0;
+    }
+
+    private double distAt(int index) {
+        return touchGen[index] == generation ? dist[index] : Double.POSITIVE_INFINITY;
+    }
+
     private void consider(
             int cx,
             int cy,
             int dx,
             int dy,
             int current,
-            double[] dist,
-            int[] parent,
             PriorityQueue<int[]> open,
             double step,
             double maxMeters
@@ -264,11 +378,12 @@ public final class LakeNavRaster {
             return;
         }
         int next = idx(nx, ny);
-        double g = dist[current] + step;
+        double g = distAt(current) + step;
         if (g > maxMeters) {
             return;
         }
-        if (g + 1e-9 < dist[next]) {
+        if (g + 1e-9 < distAt(next)) {
+            touchGen[next] = generation;
             dist[next] = g;
             parent[next] = current;
             open.add(new int[]{next});
@@ -288,6 +403,9 @@ public final class LakeNavRaster {
 
     private boolean inBounds(int x, int y) {
         return x >= 0 && y >= 0 && x < grid.widthCells() && y < grid.heightCells();
+    }
+
+    private record SearchKey(int start, int goal, long maxMetersBits) {
     }
 
     private static double hypotM(Coordinate a, Coordinate b) {

@@ -42,6 +42,9 @@ public class CatchEvent {
     @Column(name = "trip_waypoint_id")
     private UUID tripWaypointId;
 
+    @Column(name = "ad_hoc_fishing_stop_id")
+    private UUID adHocFishingStopId;
+
     @Column(name = "lake_feature_id")
     private UUID lakeFeatureId;
 
@@ -106,6 +109,13 @@ public class CatchEvent {
 
     @Column(length = 2000)
     private String notes;
+
+    @Column(name = "is_target_species")
+    private Boolean isTargetSpecies;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "size_bucket")
+    private SizeBucket sizeBucket;
 
     @Enumerated(EnumType.STRING)
     @Column(name = "planned_feature_type")
@@ -191,6 +201,14 @@ public class CatchEvent {
 
     public void setTripWaypointId(UUID tripWaypointId) {
         this.tripWaypointId = tripWaypointId;
+    }
+
+    public UUID getAdHocFishingStopId() {
+        return adHocFishingStopId;
+    }
+
+    public void setAdHocFishingStopId(UUID adHocFishingStopId) {
+        this.adHocFishingStopId = adHocFishingStopId;
     }
 
     public UUID getLakeFeatureId() {
@@ -351,6 +369,22 @@ public class CatchEvent {
 
     public void setNotes(String notes) {
         this.notes = notes;
+    }
+
+    public Boolean getIsTargetSpecies() {
+        return isTargetSpecies;
+    }
+
+    public void setIsTargetSpecies(Boolean isTargetSpecies) {
+        this.isTargetSpecies = isTargetSpecies;
+    }
+
+    public SizeBucket getSizeBucket() {
+        return sizeBucket;
+    }
+
+    public void setSizeBucket(SizeBucket sizeBucket) {
+        this.sizeBucket = sizeBucket;
     }
 
     public FeatureType getPlannedFeatureType() {

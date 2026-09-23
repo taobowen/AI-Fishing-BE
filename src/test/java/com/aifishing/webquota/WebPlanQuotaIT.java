@@ -116,7 +116,8 @@ class WebPlanQuotaIT extends AbstractIntegrationTest {
 
         mockMvc.perform(asWeb(get("/api/v1/me/plans")))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.length()", is(3)));
+                .andExpect(jsonPath("$.length()", is(3)))
+                .andExpect(jsonPath("$[0].lakeCardImageUrl", is("http://localhost:8080/lakes/head.jpg")));
 
         UUID firstTrip = tripRepository.findOwned(DevSeedIds.USER_ID, null, null, null).getFirst().getId();
         String first = mockMvc.perform(asWeb(get("/api/v1/trips/" + firstTrip + "/plan")))

@@ -109,7 +109,7 @@ class BoatCapabilityPlanningIT extends AbstractIntegrationTest {
         assertThat(score(planA, nearId)).isEqualTo(score(planB, nearId));
         assertThat(score(planB, farId)).isEqualTo(score(planC, farId));
 
-        assertThat(planA.path("plan").path("planningAlgorithmVersion").asText()).isEqualTo("1.4.0");
+        assertThat(planA.path("plan").path("planningAlgorithmVersion").asText()).isEqualTo("1.5.0");
         assertThat(cruise(planA)).isLessThan(cruise(planB));
         assertThat(cruise(planB)).isLessThanOrEqualTo(cruise(planC));
         JsonNode usableA = planA.path("plan").path("metadata").path("boatCapability").path("usableRange");

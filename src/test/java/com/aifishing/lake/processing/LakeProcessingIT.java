@@ -18,6 +18,7 @@ import com.aifishing.lake.processing.repo.DerivedAnalysisArtifactRepository;
 import com.aifishing.lake.processing.repo.LakeFeatureRepository;
 import com.aifishing.lake.processing.repo.LakeFeatureStatusRepository;
 import com.aifishing.seed.DevSeedIds;
+import com.fasterxml.jackson.databind.JsonNode;
 import org.junit.jupiter.api.Test;
 import org.locationtech.jts.geom.Geometry;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -81,17 +82,16 @@ class LakeProcessingIT extends AbstractIntegrationTest {
         );
         ProcessingFixtures.seedRegulationText(DevSeedIds.LAKE_ID, restrictionRepository);
 
-        mockMvc.perform(asDev(post("/api/v1/admin/lakes/" + DevSeedIds.LAKE_ID + "/process")))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.processingStatus", is("READY")))
-                .andExpect(jsonPath("$.contourCount", greaterThan(0)))
-                .andExpect(jsonPath("$.bathymetryPointCount", greaterThan(0)))
-                .andExpect(jsonPath("$.featureCountByType.HUMP", greaterThan(0)))
-                .andExpect(jsonPath("$.featureCountByType.BASIN", greaterThan(0)))
-                .andExpect(jsonPath("$.featureCountByType.DROP_OFF", greaterThan(0)))
-                .andExpect(jsonPath("$.featureCountByType.FLAT", greaterThan(0)))
-                .andExpect(jsonPath("$.confidenceDistribution", notNullValue()))
-                .andExpect(jsonPath("$.warnings", notNullValue()));
+        JsonNode processed = awaitLakeOpsJobResult(asDev(post("/api/v1/admin/lakes/" + DevSeedIds.LAKE_ID + "/process")));
+        assertThat(processed.path("processingStatus").asText()).isEqualTo("READY");
+        assertThat(processed.path("contourCount").asInt()).isGreaterThan(0);
+        assertThat(processed.path("bathymetryPointCount").asInt()).isGreaterThan(0);
+        assertThat(processed.path("featureCountByType").path("HUMP").asInt()).isGreaterThan(0);
+        assertThat(processed.path("featureCountByType").path("BASIN").asInt()).isGreaterThan(0);
+        assertThat(processed.path("featureCountByType").path("DROP_OFF").asInt()).isGreaterThan(0);
+        assertThat(processed.path("featureCountByType").path("FLAT").asInt()).isGreaterThan(0);
+        assertThat(processed.path("confidenceDistribution").isMissingNode()).isFalse();
+        assertThat(processed.path("warnings").isMissingNode()).isFalse();
 
         List<LakeFeature> features = featureRepository.findByLakeId(DevSeedIds.LAKE_ID);
         assertThat(features).extracting(LakeFeature::getType)
@@ -152,11 +152,9 @@ class LakeProcessingIT extends AbstractIntegrationTest {
                 contourRepository, bathymetryPointRepository, waterwayRepository,
                 boundaryRepository, datasetStatusRepository
         );
-        mockMvc.perform(asDev(post("/api/v1/admin/lakes/" + DevSeedIds.LAKE_ID + "/process")))
-                .andExpect(status().isOk());
+        awaitLakeOpsJobResult(asDev(post("/api/v1/admin/lakes/" + DevSeedIds.LAKE_ID + "/process")));
         long first = featureRepository.findByLakeId(DevSeedIds.LAKE_ID).size();
-        mockMvc.perform(asDev(post("/api/v1/admin/lakes/" + DevSeedIds.LAKE_ID + "/process")))
-                .andExpect(status().isOk());
+        awaitLakeOpsJobResult(asDev(post("/api/v1/admin/lakes/" + DevSeedIds.LAKE_ID + "/process")));
         assertThat(featureRepository.findByLakeId(DevSeedIds.LAKE_ID)).hasSize((int) first);
     }
 
@@ -166,9 +164,10 @@ class LakeProcessingIT extends AbstractIntegrationTest {
                 DevSeedIds.LAKE_ID, 44.75, -78.92,
                 waterwayRepository, datasetStatusRepository
         );
-        mockMvc.perform(asDev(post("/api/v1/admin/lakes/" + DevSeedIds.LAKE_ID + "/process")))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.processingStatus", is("READY")));
+        JsonNode job = awaitLakeOpsJob(asDev(post("/api/v1/admin/lakes/" + DevSeedIds.LAKE_ID + "/process")));
+        assertThat(job.path("status").asText()).isEqualTo("FAILED");
+        assertThat(job.path("failureCode").asText()).isEqualTo("NO_PERSISTED_FEATURES");
+        assertThat(job.path("result").path("processingStatus").asText()).isEqualTo("READY");
 
         assertThat(featureStatusRepository.findByLakeIdAndFeatureType(DevSeedIds.LAKE_ID, FeatureType.POINT)
                 .orElseThrow().getStatus()).isEqualTo(FeatureStatusCode.AVAILABLE);
@@ -212,9 +211,8 @@ class LakeProcessingIT extends AbstractIntegrationTest {
                 DevSeedIds.SCUGOG_LAKE_ID,
                 DevSeedIds.SIMCOE_LAKE_ID
         )) {
-            mockMvc.perform(asDev(post("/api/v1/admin/lakes/" + lakeId + "/process")))
-                    .andExpect(status().isOk())
-                    .andExpect(jsonPath("$.processingStatus", is("READY")));
+            JsonNode processed = awaitLakeOpsJobResult(asDev(post("/api/v1/admin/lakes/" + lakeId + "/process")));
+            assertThat(processed.path("processingStatus").asText()).isEqualTo("READY");
         }
 
         assertThat(featureStatusRepository.findByLakeIdAndFeatureType(DevSeedIds.RICE_LAKE_ID, FeatureType.HUMP)
@@ -257,6 +255,11 @@ class LakeProcessingIT extends AbstractIntegrationTest {
                 DevSeedIds.LAKE_ID, DatasetType.ACCESS_POINT, DatasetStatusCode.AVAILABLE, 105, datasetStatusRepository);
         String afterAccessPoint = fingerprint.id(contextFactory.sourceDatasetSnapshot(lake));
         assertThat(afterAccessPoint).isEqualTo(fromLite);
+
+        java.util.Map<String, Object> legacyFull = new java.util.LinkedHashMap<>(
+                contextFactory.sourceDatasetSnapshot(lake));
+        legacyFull.put("ACCESS_POINT", java.util.Map.of("status", "AVAILABLE", "recordCount", 105));
+        assertThat(fingerprint.id(contextFactory.structureSourceSubset(legacyFull))).isEqualTo(fromLite);
     }
 
     @Test
@@ -266,9 +269,8 @@ class LakeProcessingIT extends AbstractIntegrationTest {
                 contourRepository, bathymetryPointRepository, waterwayRepository,
                 boundaryRepository, datasetStatusRepository
         );
-        mockMvc.perform(asDev(post("/api/v1/admin/lakes/" + DevSeedIds.LAKE_ID + "/process")))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.processingStatus", is("READY")));
+        JsonNode processed = awaitLakeOpsJobResult(asDev(post("/api/v1/admin/lakes/" + DevSeedIds.LAKE_ID + "/process")));
+        assertThat(processed.path("processingStatus").asText()).isEqualTo("READY");
         LakeFeature referenced = featureRepository.findByLakeIdAndPipelineAndType(
                 DevSeedIds.LAKE_ID, com.aifishing.lake.processing.dto.Pipeline.GIS, FeatureType.HUMP).get(0);
         UUID tripId = tripRepository.save(com.aifishing.planning.PlanningFixtures.trip(
@@ -286,10 +288,9 @@ class LakeProcessingIT extends AbstractIntegrationTest {
         waypoint.setLakeFeatureId(referenced.getId());
         tripWaypointRepository.save(waypoint);
 
-        mockMvc.perform(asDev(post("/api/v1/admin/lakes/" + DevSeedIds.LAKE_ID + "/process")))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.processingStatus", is("READY")))
-                .andExpect(jsonPath("$.failedFeatureTypes", hasSize(0)));
+        JsonNode reprocessed = awaitLakeOpsJobResult(asDev(post("/api/v1/admin/lakes/" + DevSeedIds.LAKE_ID + "/process")));
+        assertThat(reprocessed.path("processingStatus").asText()).isEqualTo("READY");
+        assertThat(reprocessed.path("failedFeatureTypes")).isEmpty();
         assertThat(featureRepository.findById(referenced.getId())).isPresent();
         assertThat(featureRepository.findByLakeIdAndPipelineAndType(
                 DevSeedIds.LAKE_ID, com.aifishing.lake.processing.dto.Pipeline.GIS, FeatureType.HUMP).size())

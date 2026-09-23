@@ -1,0 +1,22 @@
+spring:
+  main:
+    web-application-type: none
+  flyway:
+    enabled: false
+  datasource:
+    hikari:
+      maximum-pool-size: 2
+      minimum-idle: 0
+
+app:
+  guidance:
+    runtime-mode: OPENAI
+  seed:
+    enabled: false
+  ops:
+    jobs:
+      launcher: inline
+
+logging:
+  pattern:
+    console: "%d{yyyy-MM-dd'T'HH:mm:ss.SSSXXX} %5p opsJobId=%X{opsJobId:-} lakeId=%X{lakeId:-} kind=%X{kind:-} ecsTaskArn=%X{ecsTaskArn:-} --- %logger{36} : %m%n"

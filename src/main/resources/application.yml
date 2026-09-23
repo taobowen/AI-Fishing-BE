@@ -39,16 +39,32 @@ springdoc:
     path: /v3/api-docs
 
 app:
+  public-asset-base-url: ${PUBLIC_ASSET_BASE_URL:}
   dev:
     default-user-id: 11111111-1111-1111-1111-111111111111
   admin:
     enabled: false
+  ops:
+    jobs:
+      launcher: inline
+      heartbeat: 30s
+      launch-stale: 5m
+      running-stale: 15m
+      reconcile-ms: 30000
+      ecs:
+        cluster: ${APP_OPS_ECS_CLUSTER:}
+        task-definition: ${APP_OPS_ECS_TASK_DEFINITION:}
+        security-group: ${APP_OPS_ECS_SECURITY_GROUP:}
+        assign-public-ip: ${APP_OPS_ECS_ASSIGN_PUBLIC_IP:ENABLED}
+        container-name: worker
+        subnets: ${APP_OPS_ECS_SUBNETS:}
+        max-concurrent: 2
   auth:
     issuer: ${APP_AUTH_ISSUER:}
     client-id: ${APP_AUTH_CLIENT_ID:}
     web-client-id: ${APP_AUTH_WEB_CLIENT_ID:}
   cors:
-    allowed-origin-patterns: ${APP_CORS_ALLOWED_ORIGIN_PATTERNS:http://localhost:*,http://127.0.0.1:*}
+    allowed-origin-patterns: ${APP_CORS_ALLOWED_ORIGIN_PATTERNS:http://localhost:*,http://127.0.0.1:*,https://anglerpilot.taobowen.com}
   aws:
     region: ${APP_AWS_REGION:}
   s3:
@@ -114,10 +130,10 @@ app:
     feature-pipeline: GIS
   planning:
     user-default-feature-pipeline: GIS
-    algorithm-version: "1.4.0"
+    algorithm-version: "1.5.0"
     spatial:
-      derivation-version: spatial-targets-v2
-      zone-builder-version: physical-zones-v3
+      derivation-version: spatial-targets-v3
+      zone-builder-version: physical-zones-v4
       navigation-version: water-nav-v3
       pairwise-full-node-limit: 48
       pairwise-full-portal-limit: 16
@@ -144,6 +160,7 @@ app:
       local-path-cell-size-m: 25
       local-path-max-cells: 40000
       internal-cruise-kmh: 6
+      casting-opportunity-meters: 40
       max-zone-portals: 4
       max-portal-pairs-per-zone: 8
       sample-along-m: 40
@@ -152,8 +169,13 @@ app:
       max-skipped-partition-ratio: 0.20
     candidates:
       min-spacing-m: 150
-      max-per-feature-type: 8
-      max-total: 24
+      max-per-feature-type: 10
+      max-total: 32
+      max-per-region-feature-type: 3
+      region-cell-size-m: 2500
+      max-macro-zones: 8
+      max-unassigned-atomics: 8
+      max-macro-visit-options: 48
       depth-tolerance-m: 0
       fallback-depth-tolerance-m: 1.5
     ranking:
@@ -180,6 +202,27 @@ app:
       why-this-time-horizon-slots: 8
       beam-width: 8
       dwell-decay: 0.85
+      max-zone-visit-minutes: 180
+      max-zone-entries: 2
+      zone-package-minutes: [45, 90, 135, 180]
+      point-dwell-minutes: [15, 20, 30, 45]
+      path-dwell-minutes: [30, 45, 60, 90]
+    search:
+      min-beam-width: 4
+      max-beam-width: 24
+      default-beam-width: 16
+      min-lookahead-horizon: 3
+      max-lookahead-horizon: 5
+      default-lookahead-horizon: 4
+      min-effective-stops: 2
+      hard-max-stops: 10
+      full-route-max-stops: 5
+      max-expansions: 20000
+      max-wall-clock-ms: 5000
+      future-potential-lambda: 0.2
+      commit-prefix-stops: 1
+    tactics:
+      stale-timeout-seconds: 900
     environment:
       solar:
         max-weight: 0.12
@@ -345,6 +388,93 @@ app:
           practical-range-km: 60
           range-confidence: 0.55
           wind-wave: HIGH
+  guidance:
+    run-timeout-ms: 20000
+    model-call-timeout-ms: 12000
+    max-model-turns: 8
+    max-tool-rounds: 4
+    max-tool-calls: 12
+    max-concurrent-tool-calls: 4
+    max-tool-result-bytes: 65536
+    max-context-tokens: 6000
+    prompt-version: guidance-prompt-v1
+    tool-schema-version: guidance-tools-v1
+    context-version: guidance-context-v1
+    policy:
+      default-version: v1
+      versions:
+        v1:
+          prompt-profile: guidance-prompt-v1
+          context-profile: guidance-context-v1
+          toolset-profile: guidance-tools-v1
+          model-profile: current
+          learning-profile: empirical-algorithm-1
+        v2:
+          prompt-profile: guidance-prompt-v1
+          context-profile: guidance-context-v1
+          toolset-profile: guidance-tools-v1
+          model-profile: current
+          learning-profile: empirical-algorithm-1
+    weather-snapshot-max-age-minutes: 15
+    heartbeat-interval-ms: 90000
+    dispatch-enabled: true
+    outbox:
+      poll-interval-ms: 15000
+      stale-claim-ms: 120000
+    learning-outbox:
+      enabled: true
+      poll-interval-ms: 15000
+      stale-claim-ms: 120000
+      max-attempts: 8
+    reliability:
+      candidate-unsafe-rate-max: 0.0
+      candidate-invalid-waypoint-rate-max: 0.0
+      validator-interception-rate-max: 0.0
+      candidate-rates-blocking: false
+    memory:
+      inferred-confidence-threshold: 0.5
+      inferred-recency-half-life-days: 45
+      recent-history-limit: 6
+      session-summary-llm-min-facts: 8
+      session-summary-llm-min-chars: 800
+    empirical:
+      min-contributing-session-waypoints: 3
+      min-sample-confidence: 0.25
+      min-effort-minutes: 15
+      prior-effort-hours: 4
+      prior-fish-on-per-hour: 0.5
+    triggers:
+      no-bite-minutes: 20
+      fish-on-cooldown-minutes: 5
+      repeated-bite-count: 3
+      repeated-bite-window-minutes: 10
+    attribution:
+      max-stay-attribution-minutes: 30
+      lure-window-minutes: 15
+      depth-window-minutes: 15
+      retrieve-window-minutes: 10
+      move-window-minutes: 30
+      consecutive-failure-threshold: 3
+      strategy-change-window-minutes: 60
+    eval:
+      min-coverage: 0.8
+      max-total-tokens: 6000
+    opportunity-revisit:
+      point-cooldown-minutes: 45
+      path-cooldown-minutes: 45
+      zone-package-cooldown-minutes: 60
+      oscillation-window-moves: 3
+      material-eligibility:
+        cooldown-expiry: true
+        time-bucket-change: true
+        weather-change: true
+        live-pressure-change: true
+        new-tool-evidence: true
+        explicit-user-intent: true
+        bite-or-fish-on-at-return-target: false
+        time-change-minutes: 60
+        wind-speed-change-kph: 10
+        pressure-change-hpa: 2
   session:
     waypoint:
       approach-radius-m: 150
@@ -361,6 +491,21 @@ app:
       approach-radius-m: 150
       arrival-radius-m: 60
       off-route-m: 40
+    ad-hoc:
+      gps-max-age-seconds: 30
+      match-radius-m: 75
+      departure-radius-m: 100
+      departure-confirm-seconds: 30
+      departure-confirm-samples: 4
+    stationary:
+      max-speed-mps: 0.4
+      stable-radius-m: 25
+      min-duration-seconds: 45
+      min-samples: 4
+      gps-max-age-seconds: 30
+      suppress-cooldown-seconds: 300
+      suppress-move-m: 40
+      recent-point-limit: 32
   feedback:
     catch:
       waypoint-association-radius-m: 150

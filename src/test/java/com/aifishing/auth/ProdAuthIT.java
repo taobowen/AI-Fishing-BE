@@ -3,9 +3,12 @@ package com.aifishing.auth;
 import com.aifishing.seed.DevSeedIds;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.security.oauth2.jwt.JwtDecoder;
+import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.context.ApplicationContext;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -19,7 +22,9 @@ import org.testcontainers.utility.DockerImageName;
 import java.util.List;
 import java.util.UUID;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -49,6 +54,8 @@ class ProdAuthIT {
         registry.add("app.s3.bucket", () -> "test-bucket");
         registry.add("app.seed.enabled", () -> "false");
         registry.add("app.admin.enabled", () -> "true");
+        registry.add("app.ops.jobs.launcher", () -> "inline");
+        registry.add("app.guidance.runtime-mode", () -> "DETERMINISTIC");
     }
 
     @Autowired
@@ -56,6 +63,9 @@ class ProdAuthIT {
 
     @Autowired
     JdbcTemplate jdbcTemplate;
+
+    @Autowired
+    ApplicationContext applicationContext;
 
     @BeforeEach
     void resetUsers() {
@@ -79,6 +89,50 @@ class ProdAuthIT {
                         .header("X-User-Id", DevSeedIds.USER_ID)
                         .accept(MediaType.APPLICATION_JSON))
                 .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void prodProfileHasNoDevAuthenticationFilter() {
+        assertThat(applicationContext.getBeansOfType(DevAuthenticationFilter.class)).isEmpty();
+    }
+
+    @Test
+    void prodServletApiLoadsIntendedSecurityFilterChain() {
+        assertThat(applicationContext.getBeansOfType(SecurityFilterChain.class)).isNotEmpty();
+        assertThat(applicationContext.getBeansOfType(JwtDecoder.class)).isNotEmpty();
+    }
+
+    @Test
+    void guidanceReplayRejectsAnonymousAndXUserIdBypass() throws Exception {
+        UUID sessionId = UUID.randomUUID();
+        mockMvc.perform(get("/api/v1/admin/guidance/sessions/" + sessionId + "/timeline")
+                        .accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isUnauthorized());
+        mockMvc.perform(get("/api/v1/admin/guidance/sessions/" + sessionId + "/timeline")
+                        .header("X-User-Id", DevSeedIds.USER_ID)
+                        .accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isUnauthorized());
+        mockMvc.perform(post("/api/v1/admin/guidance/runs/" + sessionId + "/evaluate")
+                        .header("X-User-Id", DevSeedIds.USER_ID)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void guidanceReplayRequiresAdminRole() throws Exception {
+        UUID sessionId = UUID.randomUUID();
+        String user = TestJwts.accessToken("sub-replay-user", "replay-user@example.com", TestJwts.CLIENT_ID, "access", List.of());
+        mockMvc.perform(get("/api/v1/admin/guidance/sessions/" + sessionId + "/timeline")
+                        .header("Authorization", "Bearer " + user)
+                        .accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isForbidden());
+
+        String admin = TestJwts.accessToken("sub-replay-admin", "replay-admin@example.com", TestJwts.CLIENT_ID, "access", List.of("ADMIN"));
+        mockMvc.perform(get("/api/v1/admin/guidance/sessions/" + sessionId + "/timeline")
+                        .header("Authorization", "Bearer " + admin)
+                        .accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isNotFound());
     }
 
     @Test

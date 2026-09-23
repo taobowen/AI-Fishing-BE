@@ -43,6 +43,11 @@ public class BoatController {
         return boatService.create(request);
     }
 
+    @PostMapping("/analyze")
+    public AnalyzeBoatResponse analyze(@Valid @RequestBody AnalyzeBoatRequest request) {
+        return boatService.analyze(request);
+    }
+
     @GetMapping("/{id}")
     public BoatResponse get(@PathVariable UUID id) {
         return boatService.get(id);

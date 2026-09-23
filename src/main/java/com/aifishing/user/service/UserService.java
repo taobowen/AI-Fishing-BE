@@ -2,10 +2,13 @@ package com.aifishing.user.service;
 
 import com.aifishing.auth.CurrentUser;
 import com.aifishing.common.exception.NotFoundException;
+import com.aifishing.user.OwnedLureFamilies;
 import com.aifishing.user.api.UpdateUserRequest;
 import com.aifishing.user.api.UserResponse;
 import com.aifishing.user.domain.User;
 import com.aifishing.user.repo.UserRepository;
+
+import java.util.List;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -31,6 +34,12 @@ public class UserService {
         if (request.displayName() != null) {
             user.setDisplayName(request.displayName().trim());
         }
+        if (request.ownedLureFamilies() != null) {
+            user.setOwnedLureFamilies(OwnedLureFamilies.normalize(request.ownedLureFamilies()));
+        }
+        if (request.kitSetupComplete() != null) {
+            user.setKitSetupComplete(request.kitSetupComplete());
+        }
         return toResponse(userRepository.save(user));
     }
 
@@ -40,10 +49,15 @@ public class UserService {
     }
 
     private UserResponse toResponse(User user) {
+        List<String> families = user.getOwnedLureFamilies() == null
+                ? List.of()
+                : List.copyOf(user.getOwnedLureFamilies());
         return new UserResponse(
                 user.getId(),
                 user.getEmail(),
                 user.getDisplayName(),
+                families,
+                user.isKitSetupComplete(),
                 user.getCreatedAt(),
                 user.getUpdatedAt()
         );

@@ -1,9 +1,12 @@
 package com.aifishing.lake.processing.admin;
 
+import com.aifishing.lake.ops.LakeOpsJobResponse;
+import com.aifishing.lake.ops.LakeOpsJobService;
 import com.aifishing.lake.processing.dto.FeatureType;
 import com.aifishing.lake.processing.dto.Pipeline;
 import com.aifishing.lake.processing.service.LakeStructureExtractionService;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -24,17 +27,22 @@ import java.util.UUID;
 public class AdminLakeProcessingController {
 
     private final LakeStructureExtractionService extractionService;
+    private final LakeOpsJobService lakeOpsJobService;
 
-    public AdminLakeProcessingController(LakeStructureExtractionService extractionService) {
+    public AdminLakeProcessingController(
+            LakeStructureExtractionService extractionService,
+            LakeOpsJobService lakeOpsJobService
+    ) {
         this.extractionService = extractionService;
+        this.lakeOpsJobService = lakeOpsJobService;
     }
 
     @PostMapping("/{lakeId}/process")
-    public LakeProcessSummaryResponse process(
+    public ResponseEntity<LakeOpsJobResponse> process(
             @PathVariable UUID lakeId,
             @RequestParam(defaultValue = "GIS") Pipeline pipeline
     ) {
-        return extractionService.process(lakeId, pipeline);
+        return ResponseEntity.status(HttpStatus.ACCEPTED).body(lakeOpsJobService.enqueueProcess(lakeId, pipeline));
     }
 
     @PostMapping("/{lakeId}/benchmark")
@@ -58,12 +66,13 @@ public class AdminLakeProcessingController {
     }
 
     @PostMapping("/{lakeId}/spatial-snapshots")
-    public Map<String, Object> rebuildSpatialSnapshot(
+    public ResponseEntity<LakeOpsJobResponse> rebuildSpatialSnapshot(
             @PathVariable UUID lakeId,
             @RequestParam(defaultValue = "GIS") Pipeline pipeline,
             @RequestParam(required = false) String analysisVersion
     ) {
-        return extractionService.rebuildSpatialSnapshot(lakeId, pipeline, analysisVersion);
+        return ResponseEntity.status(HttpStatus.ACCEPTED)
+                .body(lakeOpsJobService.enqueueSnapshot(lakeId, pipeline, analysisVersion));
     }
 
     @GetMapping("/{lakeId}/spatial-snapshots")

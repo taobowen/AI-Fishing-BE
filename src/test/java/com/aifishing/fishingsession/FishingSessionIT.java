@@ -54,6 +54,33 @@ class FishingSessionIT extends AbstractIntegrationTest {
     }
 
     @Test
+    void currentReturnsUnfinishedSessionOrNoContent() throws Exception {
+        mockMvc.perform(asDev(get("/api/v1/fishing-sessions/current")))
+                .andExpect(status().isNoContent());
+
+        Seed seed = seedPlan(TripPlanStatus.GENERATED);
+        String sessionId = readId(mockMvc.perform(asDev(post("/api/v1/trips/" + seed.tripId + "/fishing-sessions")).content("{}"))
+                .andExpect(status().isCreated())
+                .andReturn());
+
+        mockMvc.perform(asDev(get("/api/v1/fishing-sessions/current")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id", is(sessionId)))
+                .andExpect(jsonPath("$.tripId", is(seed.tripId.toString())))
+                .andExpect(jsonPath("$.status", is("ACTIVE")));
+
+        mockMvc.perform(asOther(get("/api/v1/fishing-sessions/current")))
+                .andExpect(status().isNoContent());
+
+        mockMvc.perform(asDev(post("/api/v1/fishing-sessions/" + sessionId + "/end"))
+                        .content(event("end-current", "2026-09-02T16:30:00Z")))
+                .andExpect(jsonPath("$.status", is("COMPLETED")));
+
+        mockMvc.perform(asDev(get("/api/v1/fishing-sessions/current")))
+                .andExpect(status().isNoContent());
+    }
+
+    @Test
     void pausedSessionAlsoBlocksANewStart() throws Exception {
         Seed seed = seedPlan(TripPlanStatus.ACCEPTED);
         String sessionId = readId(mockMvc.perform(asDev(post("/api/v1/trips/" + seed.tripId + "/fishing-sessions")).content("{}"))
@@ -179,6 +206,39 @@ class FishingSessionIT extends AbstractIntegrationTest {
     }
 
     @Test
+    void navigationOnlyEchoesModeStartsGpsAndSkipsAgent() throws Exception {
+        Seed seed = seedPlan(TripPlanStatus.GENERATED);
+        String sessionId = readId(mockMvc.perform(asDev(post("/api/v1/trips/" + seed.tripId + "/fishing-sessions"))
+                        .content("{\"guidanceMode\":\"NAVIGATION_ONLY\"}"))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.guidanceMode", is("NAVIGATION_ONLY")))
+                .andExpect(jsonPath("$.status", is("ACTIVE")))
+                .andReturn());
+
+        Instant t0 = Instant.parse("2026-09-02T17:00:00Z");
+        mockMvc.perform(asDev(post("/api/v1/fishing-sessions/" + sessionId + "/locations"))
+                        .content(batch(
+                                point("nav-a", t0, WP1_LAT, WP1_LNG, 8),
+                                point("nav-b", t0.plusSeconds(10), WP1_LAT, WP1_LNG, 8)
+                        )))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.guidanceMode", is("NAVIGATION_ONLY")));
+
+        mockMvc.perform(asDev(post("/api/v1/fishing-sessions/" + sessionId + "/waypoints/" + seed.wp1 + "/arrive"))
+                        .content(event("arrive-nav", "2026-09-02T17:01:00Z")))
+                .andExpect(status().isOk());
+
+        Long outbox = jdbcTemplate.queryForObject(
+                "select count(*) from guidance_trigger_outbox where fishing_session_id = ?",
+                Long.class,
+                UUID.fromString(sessionId));
+        org.assertj.core.api.Assertions.assertThat(outbox).isZero();
+
+        mockMvc.perform(asDev(post("/api/v1/fishing-sessions/" + sessionId + "/guidance/decisions")).content("{}"))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
     void pausedGpsDoesNotAutoAdvanceAndManualCompletePromotesNext() throws Exception {
         Seed seed = seedPlan(TripPlanStatus.GENERATED);
         String sessionId = readId(mockMvc.perform(asDev(post("/api/v1/trips/" + seed.tripId + "/fishing-sessions")).content("{}"))
@@ -251,6 +311,65 @@ class FishingSessionIT extends AbstractIntegrationTest {
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.waypoints[0].status", is("NAVIGATING")))
                 .andExpect(jsonPath("$.waypoints[1].status", is("UPCOMING")));
+    }
+
+    @Test
+    void followFullPlanDoesNotSkipExpiredStopsOrMutatePlanClocks() throws Exception {
+        Instant now = Instant.now();
+        Instant originalDeparture = now.minusSeconds(60);
+        Seed seed = seedTimedPlan(
+                now.minusSeconds(7200), originalDeparture,
+                now.plusSeconds(600), now.plusSeconds(3600)
+        );
+        MvcResult created = mockMvc.perform(asDev(post("/api/v1/trips/" + seed.tripId + "/fishing-sessions"))
+                        .content("{\"lateStart\":\"FOLLOW_FULL_PLAN\"}"))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.waypoints[0].status", is("NAVIGATING")))
+                .andExpect(jsonPath("$.waypoints[1].status", is("UPCOMING")))
+                .andReturn();
+        String sessionId = readId(created);
+        Long startedEvents = jdbcTemplate.queryForObject(
+                "select count(*) from session_events where fishing_session_id = ? and type = 'SESSION_STARTED'",
+                Long.class,
+                UUID.fromString(sessionId)
+        );
+        org.assertj.core.api.Assertions.assertThat(startedEvents).isEqualTo(1);
+        mockMvc.perform(asDev(get("/api/v1/trips/" + seed.tripId + "/plan")))
+                .andExpect(jsonPath("$.waypoints[0].plannedDepartureAt").exists());
+    }
+
+    @Test
+    void arriveExposesRecommendedWindowFromArrivedAtAndLeavesPlanClocks() throws Exception {
+        Instant now = Instant.now();
+        Instant originalArrival = now.minusSeconds(7200);
+        Instant originalDeparture = now.minusSeconds(60);
+        Seed seed = seedTimedPlan(
+                originalArrival, originalDeparture,
+                now.plusSeconds(600), now.plusSeconds(3600)
+        );
+        TripWaypoint wp1 = tripWaypointRepository.findById(seed.wp1).orElseThrow();
+        wp1.setPlannedFishingMinutes(45);
+        tripWaypointRepository.save(wp1);
+
+        String sessionId = readId(mockMvc.perform(asDev(post("/api/v1/trips/" + seed.tripId + "/fishing-sessions"))
+                        .content("{\"lateStart\":\"FOLLOW_FULL_PLAN\"}"))
+                .andReturn());
+
+        mockMvc.perform(asDev(post("/api/v1/fishing-sessions/" + sessionId + "/waypoints/" + seed.wp1 + "/arrive"))
+                        .content(event("arrive-window", now.toString())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.waypoints[0].status", is("FISHING")))
+                .andExpect(jsonPath("$.waypoints[0].arrivedAt").exists())
+                .andExpect(jsonPath("$.waypoints[0].recommendedStartAt").exists())
+                .andExpect(jsonPath("$.waypoints[0].recommendedEndAt").exists());
+
+        mockMvc.perform(asDev(get("/api/v1/fishing-sessions/" + sessionId + "/navigation")))
+                .andExpect(jsonPath("$.currentWaypoint.recommendedStartAt").exists())
+                .andExpect(jsonPath("$.currentWaypoint.recommendedEndAt").exists());
+
+        mockMvc.perform(asDev(get("/api/v1/trips/" + seed.tripId + "/plan")))
+                .andExpect(jsonPath("$.waypoints[0].plannedArrivalAt").exists())
+                .andExpect(jsonPath("$.waypoints[0].plannedDepartureAt").exists());
     }
 
     @Test

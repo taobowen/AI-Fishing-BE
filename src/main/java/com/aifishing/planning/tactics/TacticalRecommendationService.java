@@ -5,6 +5,7 @@ import com.aifishing.gear.domain.Gear;
 import com.aifishing.gear.repo.GearRepository;
 import com.aifishing.planning.route.PlannedStop;
 import com.aifishing.planning.service.PlanningContext;
+import com.aifishing.planning.spatial.GenerateProfiler;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -44,9 +45,12 @@ public class TacticalRecommendationService {
     }
 
     public TacticalPlan recommend(List<PlannedStop> stops, PlanningContext context) {
+        return recommendVisits(TacticalVisits.extract(stops), context);
+    }
+
+    public TacticalPlan recommendVisits(List<FishableVisit> visits, PlanningContext context) {
         try {
-            List<FishableVisit> visits = TacticalVisits.extract(stops);
-            if (visits.isEmpty()) {
+            if (visits == null || visits.isEmpty()) {
                 return TacticalPlan.empty();
             }
             List<StopTacticalProfile> profiles = ideals(visits, context);
@@ -71,10 +75,14 @@ public class TacticalRecommendationService {
 
     private List<StopTacticalProfile> ideals(List<FishableVisit> visits, PlanningContext context) {
         if (aiClient.configured()) {
+            GenerateProfiler.current().count("tacticsAiCalls");
+            GenerateProfiler.current().start(GenerateProfiler.TACTICS_AI);
             try {
                 return aiClient.recommend(visits, context);
             } catch (Exception ex) {
                 log.warn("Tactical AI failed; using heuristic: {}", ex.getMessage());
+            } finally {
+                GenerateProfiler.current().end(GenerateProfiler.TACTICS_AI);
             }
         }
         try {
@@ -116,6 +124,10 @@ public class TacticalRecommendationService {
 
         public static TacticalPlan unavailable() {
             return new TacticalPlan(Map.of(), WARNING_UNAVAILABLE);
+        }
+
+        public boolean usable() {
+            return warning == null && !byVisitId.isEmpty();
         }
     }
 }

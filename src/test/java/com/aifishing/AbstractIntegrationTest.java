@@ -12,9 +12,11 @@ import com.aifishing.lake.repo.LakeRepository;
 import com.aifishing.planning.repo.TripPlanRepository;
 import com.aifishing.planning.repo.TripWaypointRepository;
 import com.aifishing.seed.DevSeedIds;
+import com.aifishing.seed.ValidationCatalogService;
 import com.aifishing.trip.repo.TripRepository;
 import com.aifishing.user.domain.User;
 import com.aifishing.user.repo.UserRepository;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.persistence.EntityManager;
 import org.junit.jupiter.api.BeforeEach;
@@ -30,6 +32,10 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.utility.DockerImageName;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -114,6 +120,32 @@ public abstract class AbstractIntegrationTest {
     void resetData() {
         jdbcTemplate.execute("""
                 TRUNCATE TABLE
+                    guidance_eval_case_results,
+                    guidance_eval_runs,
+                    guidance_online_metric_rollups,
+                    guidance_learning_outbox,
+                    outcome_attributions,
+                    session_live_position,
+                    historical_performance_contributions,
+                    historical_performance,
+                    session_summaries,
+                    agent_reflections,
+                    semantic_memories,
+                    inferred_user_preferences,
+                    user_fishing_preferences,
+                    user_action_events,
+                    guidance_trigger_outbox,
+                    agent_feedback,
+                    guidance_plan_steps,
+                    guidance_plan_versions,
+                    agent_delivered_decisions,
+                    agent_validations,
+                    agent_candidate_decisions,
+                    agent_tool_calls,
+                    agent_runs,
+                    lure_events,
+                    weather_snapshots,
+                    session_events,
                     web_plan_quota_ledger,
                     web_plan_generation_requests,
                     user_web_plan_entitlements,
@@ -144,8 +176,10 @@ public abstract class AbstractIntegrationTest {
                     lake_boundaries,
                     raw_data_objects,
                     lake_dataset_status,
+                    lake_ops_jobs,
                     catch_photos,
                     catch_events,
+                    session_ad_hoc_fishing_stops,
                     fishing_effort_segments,
                     session_pause_intervals,
                     session_client_events,
@@ -167,6 +201,16 @@ public abstract class AbstractIntegrationTest {
                     users
                 RESTART IDENTITY CASCADE
                 """);
+        jdbcTemplate.update("""
+                UPDATE agent_runtime_control
+                SET agent_enabled = TRUE,
+                    production_version = 'v1',
+                    candidate_version = NULL,
+                    shadow_enabled = FALSE,
+                    learning_enabled = TRUE,
+                    updated_at = now()
+                WHERE id = 1
+                """);
         entityManager.clear();
 
         User dev = new User();
@@ -181,15 +225,7 @@ public abstract class AbstractIntegrationTest {
         other.setDisplayName("Other Angler");
         userRepository.save(other);
 
-        Lake lake = new Lake();
-        lake.setId(DevSeedIds.LAKE_ID);
-        lake.setName("Head Lake");
-        lake.setProvince("Ontario");
-        lake.setCountry("Canada");
-        lake.setSource("MANUAL_SEED");
-        lake.setCentroid(geoMapper.toPoint(new GeoPointDto(44.75, -78.92)));
-        lake.setTimeZoneId("America/Toronto");
-        lakeRepository.save(lake);
+        seedLake(DevSeedIds.LAKE_ID, "Head Lake", 44.75, -78.92);
     }
 
     protected Lake seedLake(java.util.UUID id, String name, double lat, double lng) {
@@ -201,6 +237,10 @@ public abstract class AbstractIntegrationTest {
         lake.setSource("MANUAL_SEED");
         lake.setCentroid(geoMapper.toPoint(new GeoPointDto(lat, lng)));
         lake.setTimeZoneId("America/Toronto");
+        ValidationCatalogService.VALIDATION_LAKES.stream()
+                .filter(spec -> spec.id().equals(id))
+                .findFirst()
+                .ifPresent(spec -> lake.setCardImagePath(spec.cardImagePath()));
         return lakeRepository.save(lake);
     }
 
@@ -220,5 +260,41 @@ public abstract class AbstractIntegrationTest {
                 .header(DevAuthenticationFilter.USER_ID_HEADER, DevSeedIds.OTHER_USER_ID)
                 .contentType(MediaType.APPLICATION_JSON)
                 .accept(MediaType.APPLICATION_JSON);
+    }
+
+    protected JsonNode awaitLakeOpsJob(MockHttpServletRequestBuilder request) throws Exception {
+        String body = mockMvc.perform(request)
+                .andExpect(status().isAccepted())
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+        JsonNode job = objectMapper.readTree(body);
+        String jobId = job.path("jobId").asText();
+        String status = job.path("status").asText();
+        if ("SUCCEEDED".equals(status) || "FAILED".equals(status)) {
+            return job;
+        }
+        for (int i = 0; i < 3000; i++) {
+            String latestBody = mockMvc.perform(asDev(get("/api/v1/admin/lakes/jobs/" + jobId)))
+                    .andExpect(status().isOk())
+                    .andReturn()
+                    .getResponse()
+                    .getContentAsString();
+            JsonNode latest = objectMapper.readTree(latestBody);
+            String latestStatus = latest.path("status").asText();
+            if ("SUCCEEDED".equals(latestStatus) || "FAILED".equals(latestStatus)) {
+                return latest;
+            }
+            Thread.sleep(100);
+        }
+        throw new AssertionError("lake ops job did not finish: " + jobId);
+    }
+
+    protected JsonNode awaitLakeOpsJobResult(MockHttpServletRequestBuilder request) throws Exception {
+        JsonNode job = awaitLakeOpsJob(request);
+        assertThat(job.path("status").asText())
+                .withFailMessage("lake ops job failed: %s", job.path("errorMessage").asText())
+                .isEqualTo("SUCCEEDED");
+        return job.path("result");
     }
 }

@@ -10,13 +10,28 @@ import com.aifishing.planning.PlanningProperties;
 import com.aifishing.planning.candidate.CandidateSpot;
 import com.aifishing.planning.service.PlanningContext;
 import com.aifishing.strategy.domain.DepthRange;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Set;
 
 @Service
 public class SpotRankingService {
+
+    private final ArrivalStrategyEvaluator arrivalStrategyEvaluator;
+
+    public SpotRankingService() {
+        this(new ArrivalStrategyEvaluator());
+    }
+
+    @Autowired
+    public SpotRankingService(ArrivalStrategyEvaluator arrivalStrategyEvaluator) {
+        this.arrivalStrategyEvaluator = arrivalStrategyEvaluator == null
+                ? new ArrivalStrategyEvaluator()
+                : arrivalStrategyEvaluator;
+    }
 
     public SpotScore score(CandidateSpot candidate, PlanningContext context, DepthRange windowDepth) {
         return score(candidate, context, windowDepth, EmpiricalEvidence.none());
@@ -28,13 +43,22 @@ public class SpotRankingService {
             DepthRange windowDepth,
             EmpiricalEvidence empirical
     ) {
+        Instant at = context != null && context.trip() != null && context.lake() != null
+                ? com.aifishing.planning.environment.TripClock.startAt(context)
+                : null;
+        ArrivalStrategyEvaluator.ArrivalStrategy arrival = arrivalStrategyEvaluator.evaluate(candidate, at, context);
         PlanningProperties.Ranking weights = context.properties().getRanking();
         EmpiricalEvidence evidence = empirical == null ? EmpiricalEvidence.none() : empirical;
+        double strategy = arrival.strategyMatch();
+        double depth = arrival.depthRange() != null
+                ? arrival.depthMatch()
+                : depthMatch(candidate, windowDepth, context.properties().getCandidates().getFallbackDepthToleranceM());
+        double time = arrival.timeWindowMatch();
         ScoreBreakdown breakdown = new ScoreBreakdown(
-                clamp(candidate.getStrategyWeight()),
-                depthMatch(candidate, windowDepth, context.properties().getCandidates().getFallbackDepthToleranceM()),
+                clamp(strategy),
+                clamp(depth),
                 clamp(candidate.getFeatureConfidence() == null ? 0.5 : candidate.getFeatureConfidence()),
-                candidate.isWindowSpecific() ? 1.0 : 0.55,
+                clamp(time),
                 gearCompatibility(candidate, context.gearTypes()),
                 0.5,
                 travelAccess(candidate, context),

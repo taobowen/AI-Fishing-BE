@@ -18,6 +18,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.exc.MismatchedInputException;
 import org.junit.jupiter.api.Test;
 
+import java.time.LocalDate;
 import java.time.LocalTime;
 import java.util.List;
 
@@ -67,6 +68,31 @@ class StrategyProfileValidatorTest {
                 LocalTime.of(5, 0), LocalTime.of(16, 0), new DepthRange(2, 4), List.of(), List.of()));
         assertThat(validator.validate(outside, context))
                 .anyMatch(error -> error.contains("fishingStartTime") || error.contains("fishingEndTime"));
+    }
+
+    @Test
+    void overnightTripContainsEarlyMorningWindow() {
+        FishingContext overnight = new FishingContext(
+                new com.aifishing.strategy.context.TripContext(
+                        StrategyFixtures.TRIP_ID,
+                        LocalDate.of(2026, 9, 18),
+                        LocalDate.of(2026, 9, 19),
+                        LocalTime.of(20, 0),
+                        LocalTime.of(5, 0),
+                        "America/Toronto",
+                        FishSpecies.SMALLMOUTH_BASS,
+                        List.of(FishSpecies.WALLEYE),
+                        com.aifishing.common.enums.FishingMode.BOAT,
+                        null
+                ),
+                context.user(),
+                context.lake(),
+                context.weather(),
+                context.dataLimitations()
+        );
+        FishingStrategyProfile morning = withWindow(new StrategyTimeWindow(
+                LocalTime.of(2, 0), LocalTime.of(4, 0), new DepthRange(2, 4), List.of(), List.of()));
+        assertThat(validator.validate(morning, overnight)).isEmpty();
     }
 
     @Test

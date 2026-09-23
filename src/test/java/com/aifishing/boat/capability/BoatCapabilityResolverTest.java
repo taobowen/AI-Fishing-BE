@@ -114,6 +114,7 @@ class BoatCapabilityResolverTest {
         assertThat(reasoner.calls).isEqualTo(1);
         assertThat(resolved.cruiseSpeedKmh().value()).isEqualTo(13.0);
         assertThat(resolved.cruiseSpeedKmh().source()).isNotEqualTo(CapabilitySource.USER_OVERRIDE);
+        assertThat(boat.getMeasuredCruiseSpeedKmh()).isEqualByComparingTo("12");
     }
 
     @Test

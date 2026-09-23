@@ -6,5 +6,7 @@ public enum ClientEventType {
     COMPLETE,
     END,
     PAUSE,
-    RESUME
+    RESUME,
+    START_AD_HOC_FISHING,
+    END_AD_HOC_FISHING
 }

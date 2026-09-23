@@ -1,0 +1,13 @@
+{
+  "caseId": "platform/deterministic-stay",
+  "kind": "PLATFORM_REGRESSION",
+  "replayMode": "FROZEN_REPLAY",
+  "recomputedComponents": [],
+  "allowedActions": ["STAY", "CHANGE_LURE", "CHANGE_DEPTH", "CHANGE_RETRIEVE"],
+  "forbiddenActions": ["RETURN"],
+  "invariants": ["DETERMINISTIC_DOES_NOT_RETURN"],
+  "recordedPrimaryAction": "STAY",
+  "recordedOutcomeKind": "NONE",
+  "snapshotRef": "deterministic-stay",
+  "scenarioId": "platform-deterministic-stay"
+}

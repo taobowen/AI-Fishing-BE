@@ -1,6 +1,8 @@
 package com.aifishing.fishingsession.domain;
 
 import com.aifishing.common.enums.FishingSessionStatus;
+import com.aifishing.guidance.contracts.ActivityStateSource;
+import com.aifishing.guidance.contracts.FishingActivityState;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -50,6 +52,28 @@ public class FishingSession {
     @Column(name = "total_paused_seconds", nullable = false)
     private int totalPausedSeconds;
 
+    @Enumerated(EnumType.STRING)
+    @Column(name = "activity_state", nullable = false, length = 16)
+    private FishingActivityState activityState = FishingActivityState.UNKNOWN;
+
+    @Column(name = "activity_state_since")
+    private Instant activityStateSince;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "activity_state_source", nullable = false, length = 32)
+    private ActivityStateSource activityStateSource = ActivityStateSource.UNKNOWN;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "activity_state_override", length = 16)
+    private FishingActivityState activityStateOverride;
+
+    @Column(name = "activity_state_override_since")
+    private Instant activityStateOverrideSince;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "guidance_mode", nullable = false, length = 32)
+    private SessionGuidanceMode guidanceMode = SessionGuidanceMode.AGENT_GUIDED;
+
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(columnDefinition = "jsonb")
     private Map<String, Object> summary;
@@ -64,6 +88,18 @@ public class FishingSession {
         }
         if (createdAt == null) {
             createdAt = Instant.now();
+        }
+        if (activityState == null) {
+            activityState = FishingActivityState.UNKNOWN;
+        }
+        if (activityStateSource == null) {
+            activityStateSource = ActivityStateSource.UNKNOWN;
+        }
+        if (guidanceMode == null) {
+            guidanceMode = SessionGuidanceMode.AGENT_GUIDED;
+        }
+        if (activityStateSince == null) {
+            activityStateSince = startedAt != null ? startedAt : createdAt;
         }
     }
 
@@ -161,5 +197,53 @@ public class FishingSession {
 
     public void setSummary(Map<String, Object> summary) {
         this.summary = summary;
+    }
+
+    public FishingActivityState getActivityState() {
+        return activityState;
+    }
+
+    public void setActivityState(FishingActivityState activityState) {
+        this.activityState = activityState;
+    }
+
+    public Instant getActivityStateSince() {
+        return activityStateSince;
+    }
+
+    public void setActivityStateSince(Instant activityStateSince) {
+        this.activityStateSince = activityStateSince;
+    }
+
+    public ActivityStateSource getActivityStateSource() {
+        return activityStateSource;
+    }
+
+    public void setActivityStateSource(ActivityStateSource activityStateSource) {
+        this.activityStateSource = activityStateSource;
+    }
+
+    public FishingActivityState getActivityStateOverride() {
+        return activityStateOverride;
+    }
+
+    public void setActivityStateOverride(FishingActivityState activityStateOverride) {
+        this.activityStateOverride = activityStateOverride;
+    }
+
+    public Instant getActivityStateOverrideSince() {
+        return activityStateOverrideSince;
+    }
+
+    public void setActivityStateOverrideSince(Instant activityStateOverrideSince) {
+        this.activityStateOverrideSince = activityStateOverrideSince;
+    }
+
+    public SessionGuidanceMode getGuidanceMode() {
+        return SessionGuidanceMode.orDefault(guidanceMode);
+    }
+
+    public void setGuidanceMode(SessionGuidanceMode guidanceMode) {
+        this.guidanceMode = SessionGuidanceMode.orDefault(guidanceMode);
     }
 }

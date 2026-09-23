@@ -2,6 +2,7 @@ package com.aifishing.fishingsession.repo;
 
 import com.aifishing.fishingsession.domain.LocationQuality;
 import com.aifishing.fishingsession.domain.SessionLocationPoint;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -26,6 +27,12 @@ public interface SessionLocationPointRepository extends JpaRepository<SessionLoc
     Optional<SessionLocationPoint> findFirstByFishingSessionIdAndQualityOrderByRecordedAtDesc(
             UUID fishingSessionId,
             LocationQuality quality
+    );
+
+    List<SessionLocationPoint> findByFishingSessionIdAndQualityOrderByRecordedAtDesc(
+            UUID fishingSessionId,
+            LocationQuality quality,
+            Pageable pageable
     );
 
     @Query("""

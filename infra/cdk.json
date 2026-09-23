@@ -7,7 +7,8 @@
     "hostedZoneName": "taobowen.com",
     "apiDomain": "api.onwaterguide.taobowen.com",
     "webDomain": "onwaterguide.taobowen.com",
-    "websiteCertificateArn": "arn:aws:acm:us-east-1:905418417106:certificate/6a1fd5ea-5b40-4040-a586-3b5bbef34b6a",
+    "nextWebDomain": "anglerpilot.taobowen.com",
+    "websiteCertificateArn": "arn:aws:acm:us-east-1:905418417106:certificate/fe925273-abcc-4783-9de4-c73975586596",
     "googleEnabled": true,
     "googleSecretArn": "arn:aws:secretsmanager:ca-central-1:905418417106:secret:castwise/prod/google-oauth-ceTCaS",
     "appleEnabled": true,
@@ -15,7 +16,9 @@
     "imageTag": "dev",
     "desiredCount": 1,
     "cpu": 512,
-    "memoryMiB": 4096,
+    "memoryMiB": 2048,
+    "workerCpu": 1024,
+    "workerMemoryMiB": 4096,
     "dbInstanceClass": "t4g.small",
     "logRetentionDays": 14,
     "callbackUrls": ["aifishing://auth"],
@@ -23,11 +26,13 @@
     "webCallbackUrls": [
       "http://localhost:3000/auth/callback/",
       "https://onwaterguide.taobowen.com/auth/callback/",
+      "https://anglerpilot.taobowen.com/auth/callback/",
       "https://castwise.taobowen.com/auth/callback/"
     ],
     "webLogoutUrls": [
       "http://localhost:3000/",
       "https://onwaterguide.taobowen.com/",
+      "https://anglerpilot.taobowen.com/",
       "https://castwise.taobowen.com/"
     ]
   }

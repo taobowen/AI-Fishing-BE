@@ -22,6 +22,74 @@
     "44444444-4444-4444-4444-444444444447": {
       "name": "Lake Simcoe",
       "primaryTargetSpecies": "LAKE_TROUT"
+    },
+    "44444444-4444-4444-4444-444444444448": {
+      "name": "Balsam Lake",
+      "primaryTargetSpecies": "SMALLMOUTH_BASS"
+    },
+    "44444444-4444-4444-4444-444444444449": {
+      "name": "Pigeon Lake",
+      "primaryTargetSpecies": "WALLEYE"
+    },
+    "44444444-4444-4444-4444-444444444450": {
+      "name": "Sturgeon Lake",
+      "primaryTargetSpecies": "WALLEYE"
+    },
+    "44444444-4444-4444-4444-444444444451": {
+      "name": "Lake Couchiching",
+      "primaryTargetSpecies": "SMALLMOUTH_BASS"
+    },
+    "44444444-4444-4444-4444-444444444452": {
+      "name": "Canal Lake",
+      "primaryTargetSpecies": "LARGEMOUTH_BASS"
+    },
+    "44444444-4444-4444-4444-444444444453": {
+      "name": "Sparrow Lake",
+      "primaryTargetSpecies": "SMALLMOUTH_BASS"
+    },
+    "44444444-4444-4444-4444-444444444454": {
+      "name": "Lake Wilcox",
+      "primaryTargetSpecies": "LARGEMOUTH_BASS"
+    },
+    "44444444-4444-4444-4444-444444444455": {
+      "name": "Musselman's Lake",
+      "primaryTargetSpecies": "LARGEMOUTH_BASS"
+    },
+    "44444444-4444-4444-4444-444444444456": {
+      "name": "Preston Lake",
+      "primaryTargetSpecies": "LARGEMOUTH_BASS"
+    },
+    "44444444-4444-4444-4444-444444444457": {
+      "name": "Heart Lake",
+      "primaryTargetSpecies": "LARGEMOUTH_BASS"
+    },
+    "44444444-4444-4444-4444-444444444458": {
+      "name": "Professor's Lake",
+      "primaryTargetSpecies": "LARGEMOUTH_BASS"
+    },
+    "44444444-4444-4444-4444-444444444459": {
+      "name": "Island Lake Reservoir",
+      "primaryTargetSpecies": "SMALLMOUTH_BASS"
+    },
+    "44444444-4444-4444-4444-444444444460": {
+      "name": "Belwood Lake",
+      "primaryTargetSpecies": "NORTHERN_PIKE"
+    },
+    "44444444-4444-4444-4444-444444444461": {
+      "name": "Mountsberg Reservoir",
+      "primaryTargetSpecies": "LARGEMOUTH_BASS"
+    },
+    "44444444-4444-4444-4444-444444444462": {
+      "name": "Christie Lake",
+      "primaryTargetSpecies": "LARGEMOUTH_BASS"
+    },
+    "44444444-4444-4444-4444-444444444463": {
+      "name": "Buckhorn Lake",
+      "primaryTargetSpecies": "WALLEYE"
+    },
+    "44444444-4444-4444-4444-444444444464": {
+      "name": "Lovesick Lake",
+      "primaryTargetSpecies": "SMALLMOUTH_BASS"
     }
   }
 }

@@ -108,4 +108,42 @@ class OpenMeteoWeatherProviderTest {
         assertThat(context.hours().get(0).shortwaveRadiation()).isEqualTo(410.0);
         assertThat(context.hours().get(0).directRadiation()).isEqualTo(280.0);
     }
+
+    @Test
+    void parseKeepsOvernightHoursOnBothCalendarDays() throws Exception {
+        String body = """
+                {
+                  "hourly": {
+                    "time": ["2026-09-18T19:00", "2026-09-18T21:00", "2026-09-19T04:00", "2026-09-19T06:00"],
+                    "temperature_2m": [10.0, 12.0, 8.0, 7.0],
+                    "wind_speed_10m": [5.0, 6.0, 4.0, 3.0],
+                    "wind_direction_10m": [180, 190, 200, 210],
+                    "precipitation": [0.0, 0.0, 0.0, 0.0],
+                    "cloud_cover": [20, 30, 40, 50],
+                    "surface_pressure": [1010, 1011, 1012, 1013],
+                    "weather_code": [1, 2, 3, 0]
+                  },
+                  "daily": {
+                    "sunrise": ["2026-09-18T06:42"],
+                    "sunset": ["2026-09-18T19:31"]
+                  }
+                }
+                """;
+        WeatherContext context = provider.parseForecast(
+                body,
+                Instant.parse("2026-09-18T12:00:00Z"),
+                "America/Toronto",
+                LocalDate.of(2026, 9, 18),
+                LocalDate.of(2026, 9, 19),
+                LocalTime.of(20, 0),
+                LocalTime.of(5, 0)
+        );
+        assertThat(context.hours()).hasSize(2);
+        assertThat(context.hours().get(0).time()).isEqualTo(LocalTime.of(21, 0));
+        assertThat(context.hours().get(0).date()).isEqualTo(LocalDate.of(2026, 9, 18));
+        assertThat(context.hours().get(1).time()).isEqualTo(LocalTime.of(4, 0));
+        assertThat(context.hours().get(1).date()).isEqualTo(LocalDate.of(2026, 9, 19));
+        assertThat(context.hours().get(0).weatherCode()).isEqualTo(2);
+    }
 }
+

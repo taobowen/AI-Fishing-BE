@@ -12,14 +12,18 @@ import com.aifishing.feedback.effort.repo.SessionPauseIntervalRepository;
 import com.aifishing.fishingsession.SessionProperties;
 import com.aifishing.fishingsession.domain.FishingSession;
 import com.aifishing.fishingsession.domain.LocationQuality;
+import com.aifishing.fishingsession.domain.SessionAdHocFishingStop;
 import com.aifishing.fishingsession.domain.SessionLocationPoint;
 import com.aifishing.fishingsession.domain.SessionWaypointProgress;
+import com.aifishing.fishingsession.domain.WaypointProgressStatus;
 import com.aifishing.fishingsession.repo.FishingSessionRepository;
+import com.aifishing.fishingsession.repo.SessionAdHocFishingStopRepository;
 import com.aifishing.fishingsession.repo.SessionLocationPointRepository;
 import com.aifishing.fishingsession.repo.SessionWaypointProgressRepository;
 import com.aifishing.lake.processing.extract.GeoMetrics;
 import com.aifishing.planning.domain.TripWaypoint;
 import com.aifishing.planning.repo.TripWaypointRepository;
+import com.aifishing.guidance.horizon.ActiveGuidanceTarget;
 import org.locationtech.jts.geom.Point;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -39,33 +43,39 @@ public class FishingEffortService {
     private final FishingSessionRepository sessionRepository;
     private final SessionLocationPointRepository locationPointRepository;
     private final SessionWaypointProgressRepository progressRepository;
+    private final SessionAdHocFishingStopRepository adHocStopRepository;
     private final TripWaypointRepository tripWaypointRepository;
     private final SessionPauseIntervalRepository pauseIntervalRepository;
     private final FishingEffortSegmentRepository segmentRepository;
     private final SessionProperties sessionProperties;
     private final FeedbackProperties feedbackProperties;
     private final GeoMapper geoMapper;
+    private final ActiveGuidanceTarget activeGuidanceTarget;
 
     public FishingEffortService(
             FishingSessionRepository sessionRepository,
             SessionLocationPointRepository locationPointRepository,
             SessionWaypointProgressRepository progressRepository,
+            SessionAdHocFishingStopRepository adHocStopRepository,
             TripWaypointRepository tripWaypointRepository,
             SessionPauseIntervalRepository pauseIntervalRepository,
             FishingEffortSegmentRepository segmentRepository,
             SessionProperties sessionProperties,
             FeedbackProperties feedbackProperties,
-            GeoMapper geoMapper
+            GeoMapper geoMapper,
+            ActiveGuidanceTarget activeGuidanceTarget
     ) {
         this.sessionRepository = sessionRepository;
         this.locationPointRepository = locationPointRepository;
         this.progressRepository = progressRepository;
+        this.adHocStopRepository = adHocStopRepository;
         this.tripWaypointRepository = tripWaypointRepository;
         this.pauseIntervalRepository = pauseIntervalRepository;
         this.segmentRepository = segmentRepository;
         this.sessionProperties = sessionProperties;
         this.feedbackProperties = feedbackProperties;
         this.geoMapper = geoMapper;
+        this.activeGuidanceTarget = activeGuidanceTarget;
     }
 
     @Transactional
@@ -93,6 +103,8 @@ public class FishingEffortService {
         }
         List<SessionPauseInterval> pauses =
                 pauseIntervalRepository.findByFishingSessionIdOrderByPausedAtAsc(session.getId());
+        List<SessionAdHocFishingStop> adHocStops =
+                adHocStopRepository.findByFishingSessionIdOrderByStartedAtAsc(session.getId());
         List<Draft> drafts = new ArrayList<>();
         int maxGap = feedbackProperties.getEffort().getMaxSampleGapSeconds();
 
@@ -116,7 +128,12 @@ public class FishingEffortService {
                 drafts.add(draft(session, progress, waypoints, EffortSegmentType.UNKNOWN, t0, t1, List.of(a, b), 0.4));
                 continue;
             }
-            TripWaypoint fishingWp = fishingWaypoint(progress, waypoints, b.getLocation(), t1, speed);
+            SessionAdHocFishingStop adHoc = coveringAdHoc(adHocStops, t1);
+            if (adHoc != null) {
+                drafts.add(draftForAdHoc(session, adHoc, t0, t1, List.of(a, b), 1.0));
+                continue;
+            }
+            TripWaypoint fishingWp = fishingWaypoint(session, progress, waypoints, b.getLocation(), t1, speed);
             if (fishingWp != null) {
                 drafts.add(draftForWaypoint(session, fishingWp, EffortSegmentType.FISHING, t0, t1, List.of(a, b), 1.0));
             } else if (navigating(progress, t1) || outsideFishingRadius(progress, waypoints, b.getLocation(), t1)) {
@@ -127,6 +144,7 @@ public class FishingEffortService {
         }
 
         addWaypointOnlyFishing(session, accepted, progress, waypoints, pauses, end, drafts);
+        addAdHocOnlyFishing(session, accepted, adHocStops, pauses, end, drafts);
         return merge(session, drafts);
     }
 
@@ -168,7 +186,49 @@ public class FishingEffortService {
         }
     }
 
+    private void addAdHocOnlyFishing(
+            FishingSession session,
+            List<SessionLocationPoint> accepted,
+            List<SessionAdHocFishingStop> stops,
+            List<SessionPauseInterval> pauses,
+            Instant sessionEnd,
+            List<Draft> drafts
+    ) {
+        for (SessionAdHocFishingStop stop : stops) {
+            if (stop.getStartedAt() == null) {
+                continue;
+            }
+            Instant departed = stop.getEndedAt() == null ? sessionEnd : stop.getEndedAt();
+            if (departed == null || !departed.isAfter(stop.getStartedAt())) {
+                continue;
+            }
+            boolean gpsInWindow = accepted.stream().anyMatch(point ->
+                    !point.getRecordedAt().isBefore(stop.getStartedAt()) && !point.getRecordedAt().isAfter(departed));
+            if (gpsInWindow) {
+                continue;
+            }
+            Instant mid = stop.getStartedAt().plusMillis(Duration.between(stop.getStartedAt(), departed).toMillis() / 2);
+            if (paused(pauses, mid)) {
+                continue;
+            }
+            drafts.add(draftForAdHoc(session, stop, stop.getStartedAt(), departed, List.of(), 1.0));
+        }
+    }
+
+    static SessionAdHocFishingStop coveringAdHoc(List<SessionAdHocFishingStop> stops, Instant at) {
+        if (stops == null || at == null) {
+            return null;
+        }
+        for (SessionAdHocFishingStop stop : stops) {
+            if (stop != null && stop.covers(at)) {
+                return stop;
+            }
+        }
+        return null;
+    }
+
     private TripWaypoint fishingWaypoint(
+            FishingSession session,
             List<SessionWaypointProgress> progress,
             Map<UUID, TripWaypoint> waypoints,
             Point location,
@@ -176,6 +236,22 @@ public class FishingEffortService {
             double speedMps
     ) {
         double radius = sessionProperties.getWaypoint().getDepartureRadiusM();
+        UUID targetId = activeGuidanceTarget == null ? null : activeGuidanceTarget.resolve(session);
+        if (targetId != null) {
+            SessionWaypointProgress targetRow = progress.stream()
+                    .filter(row -> targetId.equals(row.getTripWaypointId()))
+                    .findFirst()
+                    .orElse(null);
+            TripWaypoint target = waypoints.get(targetId);
+            if (target != null
+                    && target.getLocation() != null
+                    && location != null
+                    && (targetRow == null || !terminalProgress(targetRow))
+                    && GeoMetrics.distanceM(location, target.getLocation()) <= radius
+                    && !(isTrolling(target) && speedMps > feedbackProperties.getEffort().getMaxTrollingSpeedMps())) {
+                return target;
+            }
+        }
         for (SessionWaypointProgress row : progress) {
             if (!arrivedFishingAt(row, at)) {
                 continue;
@@ -193,6 +269,11 @@ public class FishingEffortService {
             return waypoint;
         }
         return null;
+    }
+
+    private static boolean terminalProgress(SessionWaypointProgress row) {
+        return row.getStatus() == WaypointProgressStatus.SKIPPED
+                || row.getStatus() == WaypointProgressStatus.COMPLETED;
     }
 
     private boolean navigating(List<SessionWaypointProgress> progress, Instant at) {
@@ -277,9 +358,35 @@ public class FishingEffortService {
         if (type == EffortSegmentType.FISHING) {
             Instant mid = start.plusMillis(Duration.between(start, end).toMillis() / 2);
             Point loc = points.isEmpty() ? null : points.get(points.size() - 1).getLocation();
-            waypoint = fishingWaypoint(progress, waypoints, loc, mid, 0);
+            waypoint = fishingWaypoint(session, progress, waypoints, loc, mid, 0);
         }
         return draftForWaypoint(session, waypoint, type, start, end, points, confidence);
+    }
+
+    private Draft draftForAdHoc(
+            FishingSession session,
+            SessionAdHocFishingStop stop,
+            Instant start,
+            Instant end,
+            List<SessionLocationPoint> points,
+            double confidence
+    ) {
+        List<Point> geometry = points.stream().map(SessionLocationPoint::getLocation).toList();
+        if (geometry.isEmpty() && stop.getLocation() != null) {
+            geometry = List.of(stop.getLocation());
+        }
+        return new Draft(
+                session.getId(),
+                null,
+                stop.getLakeFeatureId(),
+                stop.getZoneId(),
+                stop.getFishingTargetId(),
+                EffortSegmentType.FISHING,
+                start,
+                end,
+                geometry,
+                confidence
+        );
     }
 
     private Draft draftForWaypoint(

@@ -39,6 +39,36 @@ public class SpatialUtility {
             TimeIndexedWeather weather,
             LocalOrientation orientation
     ) {
+        RequestScoringCache scoring = RequestScoringCache.current();
+        RequestScoringCache.AlongKey cacheKey = null;
+        if (scoring != null && candidate != null && candidate.spot() != null && candidate.score() != null
+                && candidate.score().breakdown() != null && context != null && context.properties() != null) {
+            cacheKey = scoring.alongKey(
+                    candidate, arrival, fishingMinutes, from, to, path, context, weather, orientation);
+            Double cached = scoring.alongPath(cacheKey);
+            if (cached != null) {
+                return cached;
+            }
+        }
+        double value = alongPathUncached(
+                candidate, arrival, fishingMinutes, from, to, path, context, weather, orientation);
+        if (scoring != null && cacheKey != null) {
+            scoring.putAlongPath(cacheKey, value);
+        }
+        return value;
+    }
+
+    private double alongPathUncached(
+            RankedCandidate candidate,
+            Instant arrival,
+            int fishingMinutes,
+            Point from,
+            Point to,
+            Geometry path,
+            PlanningContext context,
+            TimeIndexedWeather weather,
+            LocalOrientation orientation
+    ) {
         List<Sample> samples = candidate.spot().getStaticSamples() != null && !candidate.spot().getStaticSamples().isEmpty()
                 ? directed(candidate.spot().getStaticSamples(), from, to)
                 : samples(path, from, to, context.properties().getSpatial());

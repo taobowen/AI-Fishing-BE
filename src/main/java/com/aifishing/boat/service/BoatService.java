@@ -1,6 +1,8 @@
 package com.aifishing.boat.service;
 
 import com.aifishing.auth.CurrentUser;
+import com.aifishing.boat.api.AnalyzeBoatRequest;
+import com.aifishing.boat.api.AnalyzeBoatResponse;
 import com.aifishing.boat.api.BoatResponse;
 import com.aifishing.boat.api.CreateBoatRequest;
 import com.aifishing.boat.api.ResolvedBoatCapabilityPreview;
@@ -15,9 +17,9 @@ import com.aifishing.boat.domain.Boat;
 import com.aifishing.boat.repo.BoatRepository;
 import com.aifishing.common.enums.BoatProvenance;
 import com.aifishing.common.enums.BoatType;
-import com.aifishing.common.enums.CapabilitySource;
 import com.aifishing.common.enums.PropulsionType;
 import com.aifishing.common.enums.WindWaveCapability;
+import com.aifishing.common.exception.BadRequestException;
 import com.aifishing.common.exception.NotFoundException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -144,7 +146,7 @@ public class BoatService {
 
     @Transactional
     public BoatResponse get(UUID id) {
-        return toResponse(requireOwned(id), false, null, false, false);
+        return toResponse(requireOwned(id), false, null);
     }
 
     @Transactional
@@ -171,7 +173,8 @@ public class BoatService {
         boat.setFreeTextHash(BoatFreeTextHasher.hash(request.configurationDescription()));
         equipmentValidator.applyDefaultsAndValidate(boat);
         Boat saved = boatRepository.save(boat);
-        return toResponse(saved, true, null, true, false);
+        applyDefaultFlag(saved, request.isDefault() == null ? !hasUserDefault(saved.getId()) : request.isDefault());
+        return toResponse(saved, false, null);
     }
 
     @Transactional
@@ -201,10 +204,8 @@ public class BoatService {
         if (request.motors() != null) {
             boat.setMotors(request.motors());
         }
-        boolean textChanged = false;
         if (request.configurationDescription() != null) {
             String nextHash = BoatFreeTextHasher.hash(request.configurationDescription());
-            textChanged = BoatFreeTextHasher.changed(boat.getFreeTextHash(), nextHash);
             boat.setConfigurationDescription(request.configurationDescription());
             boat.setFreeTextHash(nextHash);
         }
@@ -228,24 +229,99 @@ public class BoatService {
         }
         equipmentValidator.applyDefaultsAndValidate(boat);
         Boat saved = boatRepository.save(boat);
-        if (textChanged) {
-            BoatCapabilityPriors priors = BoatCapabilityPriors.from(saved);
-            return toResponse(saved, true, priors, true, true);
+        if (request.isDefault() != null) {
+            applyDefaultFlag(saved, request.isDefault());
+        } else if (!saved.isDefaultBoat() && !hasUserDefault(saved.getId())) {
+            applyDefaultFlag(saved, true);
         }
-        return toResponse(saved, false, null, false, false);
+        return toResponse(saved, false, null);
+    }
+
+    @Transactional
+    public AnalyzeBoatResponse analyze(AnalyzeBoatRequest request) {
+        String description = request.configurationDescription() == null ? "" : request.configurationDescription().trim();
+        if (description.isBlank()) {
+            throw new BadRequestException("configurationDescription is required");
+        }
+        Boat scratch = new Boat();
+        scratch.setUserId(currentUser.id());
+        scratch.setName("analyze");
+        scratch.setConfigurationDescription(description);
+        equipmentValidator.applyDefaultsAndValidate(scratch);
+        BoatCapabilityPriors priors = new BoatCapabilityPriors(
+                decimal(request.savedCruiseSpeedKmh()),
+                decimal(request.savedPracticalRangeKm()),
+                request.savedWindWaveCapability()
+        );
+        if (!priors.present()) {
+            priors = null;
+        }
+        try {
+            ResolvedBoatCapability resolved = capabilityResolver.resolve(scratch, true, priors);
+            return AnalyzeBoatResponse.from(resolved);
+        } catch (Exception ex) {
+            log.info("Boat capability proposal unavailable: {}", ex.getMessage());
+            return AnalyzeBoatResponse.from(null);
+        }
     }
 
     @Transactional
     public BoatResponse resolveCapability(UUID id) {
         Boat boat = requireOwned(id);
-        return toResponse(boat, true, BoatCapabilityPriors.from(boat), false, false);
+        return toResponse(boat, true, BoatCapabilityPriors.from(boat));
     }
 
     @Transactional
     public void delete(UUID id) {
         Boat boat = requireOwned(id);
+        boolean wasDefault = boat.isDefaultBoat();
         boat.setActive(false);
+        boat.setDefaultBoat(false);
         boatRepository.save(boat);
+        if (wasDefault) {
+            promoteNextDefault(id);
+        }
+    }
+
+    private boolean hasUserDefault(UUID exceptId) {
+        return boatRepository.findByUserIdAndActiveTrueAndSystemGeneratedFalseOrderByNameAsc(currentUser.id())
+                .stream()
+                .anyMatch(boat -> boat.isDefaultBoat() && (exceptId == null || !exceptId.equals(boat.getId())));
+    }
+
+    private void applyDefaultFlag(Boat boat, boolean makeDefault) {
+        if (boat.isSystemGenerated()) {
+            boat.setDefaultBoat(false);
+            boatRepository.save(boat);
+            return;
+        }
+        if (!makeDefault) {
+            if (boat.isDefaultBoat() && !hasUserDefault(boat.getId())) {
+                boat.setDefaultBoat(true);
+                boatRepository.save(boat);
+                return;
+            }
+            boat.setDefaultBoat(false);
+            boatRepository.save(boat);
+            return;
+        }
+        for (Boat other : boatRepository.findByUserIdAndActiveTrueAndSystemGeneratedFalseOrderByNameAsc(boat.getUserId())) {
+            if (!other.getId().equals(boat.getId()) && other.isDefaultBoat()) {
+                other.setDefaultBoat(false);
+                boatRepository.save(other);
+            }
+        }
+        boatRepository.flush();
+        boat.setDefaultBoat(true);
+        boatRepository.save(boat);
+    }
+
+    private void promoteNextDefault(UUID exceptId) {
+        boatRepository.findByUserIdAndActiveTrueAndSystemGeneratedFalseOrderByNameAsc(currentUser.id())
+                .stream()
+                .filter(boat -> !boat.getId().equals(exceptId))
+                .findFirst()
+                .ifPresent(next -> applyDefaultFlag(next, true));
     }
 
     private Boat requireOwned(UUID id) {
@@ -253,21 +329,10 @@ public class BoatService {
                 .orElseThrow(() -> new NotFoundException("Boat not found"));
     }
 
-    private BoatResponse toResponse(
-            Boat boat,
-            boolean forceRefresh,
-            BoatCapabilityPriors priors,
-            boolean persistResolvedMetrics,
-            boolean revising
-    ) {
+    private BoatResponse toResponse(Boat boat, boolean forceRefresh, BoatCapabilityPriors priors) {
         ResolvedBoatCapabilityPreview preview = null;
         try {
             ResolvedBoatCapability resolved = capabilityResolver.resolve(boat, forceRefresh, priors);
-            if (persistResolvedMetrics) {
-                persistResolvedMetrics(boat, resolved, revising);
-                equipmentValidator.applyDefaultsAndValidate(boat);
-                boatRepository.save(boat);
-            }
             preview = ResolvedBoatCapabilityPreview.from(resolved);
         } catch (Exception ex) {
             log.info("Boat capability preview unavailable for {}: {}", boat.getId(), ex.getMessage());
@@ -275,29 +340,7 @@ public class BoatService {
         return BoatResponse.from(boat, preview);
     }
 
-    private void persistResolvedMetrics(Boat boat, ResolvedBoatCapability resolved, boolean revising) {
-        if (resolved == null) {
-            return;
-        }
-        boolean fromAi = isAi(resolved.cruiseSpeedKmh() == null ? null : resolved.cruiseSpeedKmh().source())
-                || isAi(resolved.estimatedPracticalRangeKm() == null ? null : resolved.estimatedPracticalRangeKm().source())
-                || isAi(resolved.windWaveCapability() == null ? null : resolved.windWaveCapability().source());
-        if (!revising && !fromAi) {
-            return;
-        }
-        if (resolved.cruiseSpeedKmh() != null && resolved.cruiseSpeedKmh().value() != null) {
-            boat.setMeasuredCruiseSpeedKmh(BigDecimal.valueOf(resolved.cruiseSpeedKmh().value()));
-        }
-        if (resolved.estimatedPracticalRangeKm() != null && resolved.estimatedPracticalRangeKm().value() != null) {
-            boat.setComfortableRoundTripRangeKm(BigDecimal.valueOf(resolved.estimatedPracticalRangeKm().value()));
-        }
-        WindWaveCapability wind = resolved.windWaveCapability() == null ? null : resolved.windWaveCapability().value();
-        if (wind != null) {
-            boat.setWindWaveOverride(wind);
-        }
-    }
-
-    private static boolean isAi(CapabilitySource source) {
-        return source == CapabilitySource.AI_MODEL_ESTIMATED || source == CapabilitySource.AI_WEB_RESOLVED;
+    private static Double decimal(BigDecimal value) {
+        return value == null ? null : value.doubleValue();
     }
 }

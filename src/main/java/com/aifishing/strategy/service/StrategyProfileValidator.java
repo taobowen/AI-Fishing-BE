@@ -3,6 +3,7 @@ package com.aifishing.strategy.service;
 import com.aifishing.common.enums.FishSpecies;
 import com.aifishing.common.enums.TechniqueType;
 import com.aifishing.lake.processing.dto.FeatureType;
+import com.aifishing.planning.environment.TripClock;
 import com.aifishing.strategy.context.FishingContext;
 import com.aifishing.strategy.context.LakeStrategyContext;
 import com.aifishing.strategy.domain.DataLimitation;
@@ -13,7 +14,6 @@ import com.aifishing.strategy.domain.StructurePreference;
 import com.aifishing.strategy.domain.TechniquePreference;
 import org.springframework.stereotype.Component;
 
-import java.time.LocalTime;
 import java.util.ArrayList;
 import java.util.EnumSet;
 import java.util.List;
@@ -109,8 +109,17 @@ public class StrategyProfileValidator {
     }
 
     private void validateWindows(FishingStrategyProfile profile, FishingContext context, List<String> errors) {
-        LocalTime tripStart = context == null || context.trip() == null ? null : context.trip().fishingStartTime();
-        LocalTime tripEnd = context == null || context.trip() == null ? null : context.trip().fishingEndTime();
+        var trip = context == null ? null : context.trip();
+        TripClock.Window tripWindow = null;
+        if (trip != null && trip.plannedDate() != null && trip.fishingStartTime() != null && trip.fishingEndTime() != null) {
+            tripWindow = TripClock.resolve(
+                    trip.plannedDate(),
+                    trip.plannedEndDate(),
+                    trip.fishingStartTime(),
+                    trip.fishingEndTime(),
+                    TripClock.zoneId(trip.timeZoneId())
+            );
+        }
         Double lakeMax = context == null || context.lake() == null ? null : context.lake().maxDepthM();
         List<StrategyTimeWindow> windows = profile.timeWindows();
         for (int i = 0; i < windows.size(); i++) {
@@ -126,11 +135,15 @@ public class StrategyProfileValidator {
             if (window.from().equals(window.to())) {
                 errors.add(prefix + " from must be before to");
             }
-            if (tripStart != null && window.from().isBefore(tripStart)) {
-                errors.add(prefix + " starts before trip fishingStartTime");
-            }
-            if (tripEnd != null && window.to().isAfter(tripEnd)) {
-                errors.add(prefix + " ends after trip fishingEndTime");
+            if (tripWindow != null) {
+                var windowStart = TripClock.atOrAfter(tripWindow.start(), window.from());
+                var windowEnd = TripClock.atOrAfter(windowStart, window.to());
+                if (windowStart.isBefore(tripWindow.start())) {
+                    errors.add(prefix + " starts before trip fishingStartTime");
+                }
+                if (windowEnd.isAfter(tripWindow.end())) {
+                    errors.add(prefix + " ends after trip fishingEndTime");
+                }
             }
             DepthRange depth = window.preferredDepthM();
             if (depth != null) {

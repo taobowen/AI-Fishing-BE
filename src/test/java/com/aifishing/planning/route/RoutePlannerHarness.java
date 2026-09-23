@@ -17,6 +17,11 @@ import com.aifishing.planning.ranking.RankedCandidate;
 import com.aifishing.planning.ranking.ScoreBreakdown;
 import com.aifishing.planning.ranking.SpotScore;
 import com.aifishing.planning.service.PlanningContext;
+import com.aifishing.planning.spatial.LakeNavRasterBuilder;
+import com.aifishing.planning.spatial.SnapshotWaterPathService;
+import com.aifishing.planning.spatial.SpatialUtility;
+import com.aifishing.planning.spatial.VisitOptionFactory;
+import com.aifishing.planning.spatial.ZoneSubPlanner;
 import com.aifishing.strategy.StrategyFixtures;
 import com.aifishing.strategy.domain.DepthRange;
 import com.aifishing.strategy.domain.LightPreference;
@@ -48,7 +53,25 @@ public final class RoutePlannerHarness {
     public static RoutePlanner planner() {
         TravelTimeEstimator travel = new TravelTimeEstimator();
         TimeAdjustedSpotUtility utility = new TimeAdjustedSpotUtility(new SolarPositionService(), new BoatWeatherPenalty());
-        return new RoutePlanner(travel, utility, new LocalOrientationService(), new BoatWeatherPenalty());
+        LocalOrientationService orientation = new LocalOrientationService();
+        SpatialUtility spatial = new SpatialUtility(utility);
+        ZoneSubPlanner zoneSubPlanner = new ZoneSubPlanner(
+                spatial,
+                utility,
+                orientation,
+                new LakeNavRasterBuilder(new com.aifishing.common.geo.LocalMetricCrs()),
+                new SnapshotWaterPathService(null)
+        );
+        return new RoutePlanner(
+                travel,
+                utility,
+                orientation,
+                new BoatWeatherPenalty(),
+                new VisitOptionFactory(),
+                spatial,
+                zoneSubPlanner,
+                new com.aifishing.planning.search.SearchParameterResolver()
+        );
     }
 
     public static PlanningContext context(WeatherContext weather, PlanningProperties properties, Point launch) {

@@ -11,7 +11,7 @@ import {
   ViewerProtocolPolicy,
 } from "aws-cdk-lib/aws-cloudfront";
 import { S3Origin } from "aws-cdk-lib/aws-cloudfront-origins";
-import { ARecord, HostedZone, RecordTarget } from "aws-cdk-lib/aws-route53";
+import { AaaaRecord, ARecord, HostedZone, RecordTarget } from "aws-cdk-lib/aws-route53";
 import { CloudFrontTarget } from "aws-cdk-lib/aws-route53-targets";
 import { BlockPublicAccess, Bucket, BucketEncryption } from "aws-cdk-lib/aws-s3";
 import { Construct } from "constructs";
@@ -58,16 +58,20 @@ function handler(event) {
     });
 
     const domain = config.webDomain;
-    const zone = config.hostedZoneName && domain
+    const aliases = [config.webDomain, config.nextWebDomain].filter((value, index, all): value is string =>
+      Boolean(value) && all.indexOf(value) === index
+    );
+    const zone = config.hostedZoneName && aliases.length
       ? HostedZone.fromLookup(this, "Zone", { domainName: config.hostedZoneName })
       : undefined;
-    const certificate: ICertificate | undefined = config.websiteCertificateArn
-      ? Certificate.fromCertificateArn(this, "ImportedWebCert", config.websiteCertificateArn)
-      : props.certificate;
+    const certificate: ICertificate | undefined = props.certificate
+      ?? (config.websiteCertificateArn
+        ? Certificate.fromCertificateArn(this, "ImportedWebCert", config.websiteCertificateArn)
+        : undefined);
 
     const distribution = new Distribution(this, "Cdn", {
       defaultRootObject: "index.html",
-      domainNames: domain ? [domain] : undefined,
+      domainNames: aliases.length ? aliases : undefined,
       certificate,
       defaultBehavior: {
         origin: new S3Origin(bucket, { originAccessIdentity: originAccess }),
@@ -88,16 +92,27 @@ function handler(event) {
       ],
     });
 
-    if (domain && zone) {
-      new ARecord(this, "Alias", {
-        zone,
-        recordName: domain,
-        target: RecordTarget.fromAlias(new CloudFrontTarget(distribution)),
+    if (aliases.length && zone) {
+      const aliasTarget = RecordTarget.fromAlias(new CloudFrontTarget(distribution));
+      aliases.forEach((name, index) => {
+        const suffix = index === 0 ? "" : `Alt${index}`;
+        new ARecord(this, `Alias${suffix}`, {
+          zone,
+          recordName: name,
+          target: aliasTarget,
+        });
+        new AaaaRecord(this, `AliasAAAA${suffix}`, {
+          zone,
+          recordName: name,
+          target: aliasTarget,
+        });
       });
     }
 
     new CfnOutput(this, "WebsiteBucket", { value: bucket.bucketName });
     new CfnOutput(this, "WebsiteDistributionId", { value: distribution.distributionId });
-    new CfnOutput(this, "WebsiteDomain", { value: domain ?? distribution.distributionDomainName });
+    new CfnOutput(this, "WebsiteDomain", {
+      value: config.nextWebDomain ?? domain ?? distribution.distributionDomainName,
+    });
   }
 }

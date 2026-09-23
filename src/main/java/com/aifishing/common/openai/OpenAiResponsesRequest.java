@@ -10,8 +10,20 @@ public record OpenAiResponsesRequest(
         String input,
         String schemaName,
         Map<String, Object> schema,
-        boolean webSearch
+        boolean webSearch,
+        boolean strict
 ) {
+    public OpenAiResponsesRequest(
+            String model,
+            int maxOutputTokens,
+            String instructions,
+            String input,
+            String schemaName,
+            Map<String, Object> schema,
+            boolean webSearch
+    ) {
+        this(model, maxOutputTokens, instructions, input, schemaName, schema, webSearch, true);
+    }
     public record Citation(String title, String url) {
     }
 

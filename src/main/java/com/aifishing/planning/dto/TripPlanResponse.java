@@ -2,6 +2,7 @@ package com.aifishing.planning.dto;
 
 import com.aifishing.common.enums.TripPlanStatus;
 import com.aifishing.lake.processing.dto.Pipeline;
+import com.aifishing.planning.tactics.TacticsStatus;
 
 import java.time.Instant;
 import java.util.List;
@@ -33,6 +34,9 @@ public record TripPlanResponse(
         Map<String, Object> metadata,
         List<TripWaypointResponse> waypoints,
         List<TransitLegResponse> transitLegs,
-        Instant generatedAt
+        Instant generatedAt,
+        TacticsStatus tacticsStatus,
+        Boolean tacticsRequested,
+        Instant tacticsStartedAt
 ) {
 }

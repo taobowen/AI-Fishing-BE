@@ -117,19 +117,12 @@ public class DevDataInitializer implements ApplicationRunner {
         boat.setActive(true);
         boatRepository.save(boat);
 
-        Lake lake = new Lake();
-        lake.setId(DevSeedIds.LAKE_ID);
-        lake.setName("Head Lake");
-        lake.setProvince("Ontario");
-        lake.setCountry("Canada");
-        lake.setSource("MANUAL_SEED");
-        lake.setCentroid(geoMapper.toPoint(new GeoPointDto(44.75, -78.92)));
-        lake.setTimeZoneId("America/Toronto");
-        lakeRepository.save(lake);
-
-        seedReferenceLake(DevSeedIds.RICE_LAKE_ID, "Rice Lake", 44.18, -78.17);
-        seedReferenceLake(DevSeedIds.SCUGOG_LAKE_ID, "Lake Scugog", 44.15, -78.90);
-        seedReferenceLake(DevSeedIds.SIMCOE_LAKE_ID, "Lake Simcoe", 44.42, -79.37);
+        Lake lake = seedCatalogLake(ValidationCatalogService.VALIDATION_LAKES.getFirst());
+        for (ValidationCatalogService.CatalogLake spec : ValidationCatalogService.VALIDATION_LAKES) {
+            if (!spec.id().equals(DevSeedIds.LAKE_ID)) {
+                seedCatalogLake(spec);
+            }
+        }
 
         Trip trip = new Trip();
         trip.setId(DevSeedIds.TRIP_ID);
@@ -185,30 +178,27 @@ public class DevDataInitializer implements ApplicationRunner {
     }
 
     private void ensureReferenceLakes() {
-        if (!lakeRepository.existsById(DevSeedIds.LAKE_ID)) {
-            seedReferenceLake(DevSeedIds.LAKE_ID, "Head Lake", 44.75, -78.92);
-        }
-        if (!lakeRepository.existsById(DevSeedIds.RICE_LAKE_ID)) {
-            seedReferenceLake(DevSeedIds.RICE_LAKE_ID, "Rice Lake", 44.18, -78.17);
-        }
-        if (!lakeRepository.existsById(DevSeedIds.SCUGOG_LAKE_ID)) {
-            seedReferenceLake(DevSeedIds.SCUGOG_LAKE_ID, "Lake Scugog", 44.15, -78.90);
-        }
-        if (!lakeRepository.existsById(DevSeedIds.SIMCOE_LAKE_ID)) {
-            seedReferenceLake(DevSeedIds.SIMCOE_LAKE_ID, "Lake Simcoe", 44.42, -79.37);
+        for (ValidationCatalogService.CatalogLake spec : ValidationCatalogService.VALIDATION_LAKES) {
+            lakeRepository.findById(spec.id()).ifPresentOrElse(existing -> {
+                if (existing.getCardImagePath() == null || existing.getCardImagePath().isBlank()) {
+                    existing.setCardImagePath(spec.cardImagePath());
+                    lakeRepository.save(existing);
+                }
+            }, () -> seedCatalogLake(spec));
         }
     }
 
-    private void seedReferenceLake(java.util.UUID id, String name, double lat, double lng) {
+    private Lake seedCatalogLake(ValidationCatalogService.CatalogLake spec) {
         Lake lake = new Lake();
-        lake.setId(id);
-        lake.setName(name);
+        lake.setId(spec.id());
+        lake.setName(spec.name());
         lake.setProvince("Ontario");
         lake.setCountry("Canada");
         lake.setSource("MANUAL_SEED");
-        lake.setCentroid(geoMapper.toPoint(new GeoPointDto(lat, lng)));
+        lake.setCentroid(geoMapper.toPoint(new GeoPointDto(spec.lat(), spec.lng())));
         lake.setTimeZoneId("America/Toronto");
-        lakeRepository.save(lake);
+        lake.setCardImagePath(spec.cardImagePath());
+        return lakeRepository.save(lake);
     }
 
     private void saveGear(java.util.UUID id, java.util.UUID userId, GearType type, String name, String brand, Map<String, Object> metadata) {

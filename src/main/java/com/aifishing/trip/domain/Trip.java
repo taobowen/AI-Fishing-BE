@@ -45,6 +45,9 @@ public class Trip extends AuditedEntity {
     @Column(name = "planned_date", nullable = false)
     private LocalDate plannedDate;
 
+    @Column(name = "planned_end_date")
+    private LocalDate plannedEndDate;
+
     @Convert(converter = LakeLocalTimeConverter.class)
     @Column(name = "fishing_start_time", nullable = false)
     private LocalTime fishingStartTime;
@@ -122,6 +125,14 @@ public class Trip extends AuditedEntity {
 
     public void setPlannedDate(LocalDate plannedDate) {
         this.plannedDate = plannedDate;
+    }
+
+    public LocalDate getPlannedEndDate() {
+        return plannedEndDate;
+    }
+
+    public void setPlannedEndDate(LocalDate plannedEndDate) {
+        this.plannedEndDate = plannedEndDate;
     }
 
     public LocalTime getFishingStartTime() {

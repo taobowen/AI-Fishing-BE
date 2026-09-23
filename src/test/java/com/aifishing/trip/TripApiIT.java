@@ -42,6 +42,7 @@ class TripApiIT extends AbstractIntegrationTest {
                         """.formatted(DevSeedIds.LAKE_ID, boatId)))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.timeZoneId", is("America/Toronto")))
+                .andExpect(jsonPath("$.lakeCardImageUrl", is("http://localhost:8080/lakes/head.jpg")))
                 .andExpect(jsonPath("$.primaryTargetSpecies", is("SMALLMOUTH_BASS")))
                 .andExpect(jsonPath("$.secondaryTargetSpecies", contains("WALLEYE")))
                 .andExpect(jsonPath("$.plans").doesNotExist())
@@ -70,8 +71,13 @@ class TripApiIT extends AbstractIntegrationTest {
                           "fishingMode": "BOAT"
                         }
                         """.formatted(DevSeedIds.LAKE_ID, boatId)))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.code", is("VALIDATION_ERROR")));
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.plannedDate", is("2026-09-12")))
+                .andExpect(jsonPath("$.plannedEndDate", is("2026-09-13")))
+                .andExpect(jsonPath("$.fishingStartTime", is("15:00:00")))
+                .andExpect(jsonPath("$.fishingEndTime", is("06:00:00")))
+                .andExpect(jsonPath("$.plannedStartAt").exists())
+                .andExpect(jsonPath("$.plannedEndAt").exists());
 
         mockMvc.perform(asDev(post("/api/v1/trips")).content("""
                         {
@@ -173,7 +179,8 @@ class TripApiIT extends AbstractIntegrationTest {
         mockMvc.perform(asDev(get("/api/v1/trips")))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$[*].id", hasItem(keptId)))
-                .andExpect(jsonPath("$[*].id", not(hasItem(cancelledId))));
+                .andExpect(jsonPath("$[*].id", not(hasItem(cancelledId))))
+                .andExpect(jsonPath("$[*].lakeCardImageUrl", hasItem("http://localhost:8080/lakes/head.jpg")));
 
         mockMvc.perform(asDev(get("/api/v1/trips").param("status", "CANCELLED")))
                 .andExpect(status().isOk())
@@ -200,6 +207,66 @@ class TripApiIT extends AbstractIntegrationTest {
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.fishingStartTime", is("08:00:00")))
                 .andExpect(jsonPath("$.fishingEndTime", is("15:00:00")));
+    }
+
+    @Test
+    void explicitSameDayAndOvernightDatesAndTwentyFourHourCap() throws Exception {
+        mockMvc.perform(asDev(post("/api/v1/trips")).content("""
+                        {
+                          "lakeId": "%s",
+                          "primaryTargetSpecies": "WALLEYE",
+                          "plannedDate": "2026-09-12",
+                          "plannedEndDate": "2026-09-12",
+                          "fishingStartTime": "06:00:00",
+                          "fishingEndTime": "15:00:00",
+                          "fishingMode": "SHORE"
+                        }
+                        """.formatted(DevSeedIds.LAKE_ID)))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.plannedDate", is("2026-09-12")))
+                .andExpect(jsonPath("$.plannedEndDate", is("2026-09-12")));
+
+        mockMvc.perform(asDev(post("/api/v1/trips")).content("""
+                        {
+                          "lakeId": "%s",
+                          "primaryTargetSpecies": "WALLEYE",
+                          "plannedDate": "2026-09-12",
+                          "plannedEndDate": "2026-09-13",
+                          "fishingStartTime": "20:00:00",
+                          "fishingEndTime": "05:00:00",
+                          "fishingMode": "SHORE"
+                        }
+                        """.formatted(DevSeedIds.LAKE_ID)))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.plannedEndDate", is("2026-09-13")));
+
+        mockMvc.perform(asDev(post("/api/v1/trips")).content("""
+                        {
+                          "lakeId": "%s",
+                          "primaryTargetSpecies": "WALLEYE",
+                          "plannedDate": "2026-09-12",
+                          "plannedEndDate": "2026-09-13",
+                          "fishingStartTime": "06:00:00",
+                          "fishingEndTime": "06:00:00",
+                          "fishingMode": "SHORE"
+                        }
+                        """.formatted(DevSeedIds.LAKE_ID)))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.plannedEndDate", is("2026-09-13")));
+
+        mockMvc.perform(asDev(post("/api/v1/trips")).content("""
+                        {
+                          "lakeId": "%s",
+                          "primaryTargetSpecies": "WALLEYE",
+                          "plannedDate": "2026-09-12",
+                          "plannedEndDate": "2026-09-13",
+                          "fishingStartTime": "06:00:00",
+                          "fishingEndTime": "06:01:00",
+                          "fishingMode": "SHORE"
+                        }
+                        """.formatted(DevSeedIds.LAKE_ID)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code", is("VALIDATION_ERROR")));
     }
 
     private UUID saveBoat(UUID userId) {

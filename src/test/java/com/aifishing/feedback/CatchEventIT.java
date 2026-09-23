@@ -150,6 +150,54 @@ class CatchEventIT extends AbstractIntegrationTest {
     }
 
     @Test
+    void landedV2FieldsPersistAndSpeciesStaysOptional() throws Exception {
+        Seed seed = startSession();
+        Instant t0 = seed.startedAt.plusSeconds(60);
+
+        String pendingId = readId(mockMvc.perform(asDev(post("/api/v1/fishing-sessions/" + seed.sessionId + "/catches"))
+                        .content(catchBody("v2-no", t0.toString(), seed.wp1, null, null)))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.species").doesNotExist())
+                .andExpect(jsonPath("$.isTargetSpecies").doesNotExist())
+                .andExpect(jsonPath("$.sizeBucket").doesNotExist())
+                .andReturn());
+
+        mockMvc.perform(asDev(patch("/api/v1/catches/" + pendingId))
+                        .content("{\"outcome\":\"LANDED\",\"isTargetSpecies\":false,\"sizeBucket\":\"SMALL\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.outcome", is("LANDED")))
+                .andExpect(jsonPath("$.isTargetSpecies", is(false)))
+                .andExpect(jsonPath("$.sizeBucket", is("SMALL")))
+                .andExpect(jsonPath("$.species").doesNotExist())
+                .andExpect(jsonPath("$.lengthCm").doesNotExist());
+
+        mockMvc.perform(asDev(get("/api/v1/catches/" + pendingId)))
+                .andExpect(jsonPath("$.isTargetSpecies", is(false)))
+                .andExpect(jsonPath("$.sizeBucket", is("SMALL")));
+
+        String yesId = readId(mockMvc.perform(asDev(post("/api/v1/fishing-sessions/" + seed.sessionId + "/catches"))
+                        .content(catchBody("v2-yes", t0.plusSeconds(1).toString(), seed.wp1, null, null)))
+                .andReturn());
+        mockMvc.perform(asDev(patch("/api/v1/catches/" + yesId))
+                        .content("{\"outcome\":\"LANDED\",\"species\":\"SMALLMOUTH_BASS\",\"isTargetSpecies\":true,\"sizeBucket\":\"BIG\"}"))
+                .andExpect(jsonPath("$.isTargetSpecies", is(true)))
+                .andExpect(jsonPath("$.sizeBucket", is("BIG")))
+                .andExpect(jsonPath("$.species", is("SMALLMOUTH_BASS")));
+
+        mockMvc.perform(asDev(post("/api/v1/fishing-sessions/" + seed.sessionId + "/catches"))
+                        .content("""
+                                {"clientCatchId":"v2-create","occurredAt":"%s","waypointId":"%s","isTargetSpecies":true,"sizeBucket":"AVERAGE"}
+                                """.formatted(t0.plusSeconds(2), seed.wp1)))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.isTargetSpecies", is(true)))
+                .andExpect(jsonPath("$.sizeBucket", is("AVERAGE")));
+
+        mockMvc.perform(asDev(patch("/api/v1/catches/" + yesId))
+                        .content("{\"sizeBucket\":\"HUGE\"}"))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
     void cancelledSessionRejectsCatch() throws Exception {
         Seed seed = startSession();
         jdbcTemplate.update("update fishing_sessions set status = 'CANCELLED' where id = ?", UUID.fromString(seed.sessionId));

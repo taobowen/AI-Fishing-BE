@@ -15,6 +15,11 @@ jobs:
           distribution: temurin
           java-version: "21"
           cache: maven
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: scripts/package-lock.json
       - name: Tests
         run: mvn -B test
 
@@ -54,7 +59,7 @@ jobs:
           ECR_REPOSITORY: ${{ vars.ECR_REPOSITORY }}
         run: |
           IMAGE="${{ steps.ecr.outputs.registry }}/${ECR_REPOSITORY}:${SHA}"
-          docker build -t "$IMAGE" .
+          docker build --platform linux/amd64 --provenance=false -t "$IMAGE" .
           docker push "$IMAGE"
       - name: CDK deploy ApiStack
         working-directory: infra

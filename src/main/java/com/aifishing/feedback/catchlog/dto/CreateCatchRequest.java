@@ -3,6 +3,8 @@ package com.aifishing.feedback.catchlog.dto;
 import com.aifishing.common.enums.FishSpecies;
 import com.aifishing.common.enums.TechniqueType;
 import com.aifishing.common.geo.GeoPointDto;
+import com.aifishing.feedback.catchlog.domain.SizeBucket;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
@@ -21,6 +23,9 @@ public record CreateCatchRequest(
         Double weightKg,
         TechniqueType techniqueType,
         String lureName,
-        String notes
+        String notes,
+        UUID fishInteractionId,
+        @JsonProperty("isTargetSpecies") Boolean isTargetSpecies,
+        SizeBucket sizeBucket
 ) {
 }

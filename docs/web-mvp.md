@@ -15,7 +15,7 @@ Web generate requires `Idempotency-Key`. Success is consumed once per `planning_
 
 Production hosts:
 
-- Site: `https://onwaterguide.taobowen.com`
+- Site: `https://anglerpilot.taobowen.com` (legacy `https://onwaterguide.taobowen.com` still served)
 - API: `https://api.onwaterguide.taobowen.com`
 - Cognito: `castwise-taobowen.auth.ca-central-1.amazoncognito.com`
 

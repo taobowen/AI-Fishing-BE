@@ -45,14 +45,18 @@ public class BoatLaunchService {
         this.geoMapper = geoMapper;
     }
 
+    /**
+     * Known launches come from lake ingest ({@code lake_access_points}), not a live water-snap.
+     * Route-start snapping still happens at generate / custom preview.
+     */
     @Transactional(readOnly = true)
     public List<BoatLaunchResponse> list(UUID lakeId) {
-        Lake lake = lakeRepository.findById(lakeId)
-                .orElseThrow(() -> new NotFoundException("Lake not found"));
-        LakePlanningGeometry geometry = geometryLoader.load(lake);
+        if (!lakeRepository.existsById(lakeId)) {
+            throw new NotFoundException("Lake not found");
+        }
         return knownBoatLaunches(lakeId).stream()
                 .sorted(Comparator.comparing(point -> point.getName() == null ? "" : point.getName()))
-                .map(point -> toResponse(point, geometry))
+                .map(this::toListResponse)
                 .toList();
     }
 
@@ -105,12 +109,7 @@ public class BoatLaunchService {
                 "Lake water geometry is not available for a custom launch");
     }
 
-    private BoatLaunchResponse toResponse(LakeAccessPoint point, LakePlanningGeometry geometry) {
-        CustomLaunchResolver.Resolution resolution = customLaunchResolver.resolve(point.getLocation(), geometry)
-                .orElse(null);
-        List<String> warnings = resolution == null
-                ? List.of(CustomLaunchResolver.ANCHOR_UNAVAILABLE)
-                : resolution.warnings();
+    private BoatLaunchResponse toListResponse(LakeAccessPoint point) {
         return new BoatLaunchResponse(
                 point.getId(),
                 point.getName(),
@@ -118,9 +117,9 @@ public class BoatLaunchService {
                 CustomLaunchResolver.accessType(point),
                 point.getSource(),
                 LaunchVerification.AUTHORITATIVE,
-                resolution != null,
+                true,
                 point.getOwnershipType(),
-                AccessOwnership.launchWarnings(point.getOwnershipType(), warnings)
+                AccessOwnership.launchWarnings(point.getOwnershipType(), List.of())
         );
     }
 

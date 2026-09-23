@@ -15,6 +15,9 @@ import com.aifishing.feedback.catchlog.repo.CatchEventRepository;
 import com.aifishing.feedback.performance.EmpiricalPerformanceService;
 import com.aifishing.fishingsession.domain.FishingSession;
 import com.aifishing.fishingsession.repo.FishingSessionRepository;
+import com.aifishing.guidance.empirical.EmpiricalAggregationService;
+import com.aifishing.guidance.attribution.GuidanceLearningHooks;
+import com.aifishing.guidance.events.SessionEventWriter;
 import com.aifishing.planning.domain.TripPlan;
 import com.aifishing.planning.repo.TripPlanRepository;
 import com.aifishing.trip.domain.Trip;
@@ -41,6 +44,9 @@ public class CatchEventService {
     private final CatchEventRepository catchEventRepository;
     private final CatchAssociationService associationService;
     private final EmpiricalPerformanceService performanceService;
+    private final SessionEventWriter sessionEventWriter;
+    private final GuidanceLearningHooks learningHooks;
+    private final EmpiricalAggregationService empiricalAggregationService;
 
     public CatchEventService(
             CurrentUser currentUser,
@@ -51,7 +57,10 @@ public class CatchEventService {
             TripPlanRepository tripPlanRepository,
             CatchEventRepository catchEventRepository,
             CatchAssociationService associationService,
-            EmpiricalPerformanceService performanceService
+            EmpiricalPerformanceService performanceService,
+            SessionEventWriter sessionEventWriter,
+            GuidanceLearningHooks learningHooks,
+            EmpiricalAggregationService empiricalAggregationService
     ) {
         this.currentUser = currentUser;
         this.clock = clock;
@@ -62,6 +71,9 @@ public class CatchEventService {
         this.catchEventRepository = catchEventRepository;
         this.associationService = associationService;
         this.performanceService = performanceService;
+        this.sessionEventWriter = sessionEventWriter;
+        this.learningHooks = learningHooks;
+        this.empiricalAggregationService = empiricalAggregationService;
     }
 
     @Transactional
@@ -123,9 +135,18 @@ public class CatchEventService {
             if (request.notes() != null) {
                 catchEvent.setNotes(request.notes());
             }
+            if (request.isTargetSpecies() != null) {
+                catchEvent.setIsTargetSpecies(request.isTargetSpecies());
+            }
+            if (request.sizeBucket() != null) {
+                catchEvent.setSizeBucket(request.sizeBucket());
+            }
         }
         CatchEvent saved = catchEventRepository.save(catchEvent);
         recomputePerformanceIfEnded(session);
+        if (request != null && request.outcome() != null) {
+            learningHooks.onCatchOutcomeChanged(session.getId(), saved);
+        }
         return toResponse(saved);
     }
 
@@ -158,6 +179,7 @@ public class CatchEventService {
         catchEvent.setTripId(session.getTripId());
         catchEvent.setTripPlanId(session.getTripPlanId());
         catchEvent.setTripWaypointId(association.tripWaypointId());
+        catchEvent.setAdHocFishingStopId(association.adHocFishingStopId());
         catchEvent.setLakeFeatureId(association.lakeFeatureId());
         catchEvent.setFishingTargetId(association.fishingTargetId());
         catchEvent.setZoneId(association.zoneId());
@@ -177,10 +199,13 @@ public class CatchEventService {
         catchEvent.setTechniqueType(request.techniqueType());
         catchEvent.setLureName(request.lureName());
         catchEvent.setNotes(request.notes());
+        catchEvent.setIsTargetSpecies(request.isTargetSpecies());
+        catchEvent.setSizeBucket(request.sizeBucket());
         catchEvent.setPlannedFeatureType(association.plannedFeatureType());
         catchEvent.setPrimaryTargetSpecies(trip.getPrimaryTargetSpecies());
         catchEvent.setStrategyRunId(plan == null ? null : plan.getStrategyRunId());
         CatchEvent saved = catchEventRepository.save(catchEvent);
+        sessionEventWriter.onCatch(session, request);
         recomputePerformanceIfEnded(session);
         return toResponse(saved);
     }
@@ -188,6 +213,7 @@ public class CatchEventService {
     private void recomputePerformanceIfEnded(FishingSession session) {
         if (session.getStatus() == FishingSessionStatus.COMPLETED) {
             performanceService.recompute(session.getId());
+            empiricalAggregationService.enqueueAfterSessionRecompute(session.getId());
         }
     }
 
@@ -228,6 +254,7 @@ public class CatchEventService {
                 catchEvent.getTripId(),
                 catchEvent.getTripPlanId(),
                 catchEvent.getTripWaypointId(),
+                catchEvent.getAdHocFishingStopId(),
                 catchEvent.getLakeFeatureId(),
                 catchEvent.getFishingTargetId(),
                 catchEvent.getZoneId(),
@@ -246,6 +273,8 @@ public class CatchEventService {
                 catchEvent.getTechniqueType(),
                 catchEvent.getLureName(),
                 catchEvent.getNotes(),
+                catchEvent.getIsTargetSpecies(),
+                catchEvent.getSizeBucket(),
                 catchEvent.getPlannedFeatureType(),
                 catchEvent.getPrimaryTargetSpecies()
         );

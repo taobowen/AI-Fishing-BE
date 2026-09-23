@@ -1,6 +1,7 @@
 package com.aifishing.planning.spatial;
 
 import com.aifishing.common.geo.GeoMapper;
+import com.aifishing.common.geo.PolygonalGeometries;
 import com.aifishing.lake.processing.extract.GeoMetrics;
 import org.locationtech.jts.geom.Geometry;
 import org.locationtech.jts.geom.GeometryCollection;
@@ -23,7 +24,11 @@ public final class GeometrySanitizer {
         if (geometry == null || geometry.isEmpty()) {
             return null;
         }
-        Geometry working = geometry.copy();
+        Geometry polygonal = PolygonalGeometries.of(geometry);
+        if (polygonal == null || polygonal.isEmpty()) {
+            return null;
+        }
+        Geometry working = polygonal.copy();
         working.setSRID(GeoMapper.SRID);
         if (!working.isValid()) {
             working = GeometryFixer.fix(working);

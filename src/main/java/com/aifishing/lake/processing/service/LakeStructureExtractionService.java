@@ -148,6 +148,15 @@ public class LakeStructureExtractionService {
         return canonicalMapService.png(lakeId);
     }
 
+    public String requireCurrentAnalysisVersion(UUID lakeId) {
+        Lake lake = requireLake(lakeId);
+        String version = lake.getCurrentAnalysisVersion();
+        if (version == null || version.isBlank()) {
+            throw new NotFoundException("Lake has no current analysis version");
+        }
+        return version;
+    }
+
     @Transactional(readOnly = true)
     public LakeFeaturesResponse features(UUID lakeId) {
         return features(lakeId, Pipeline.GIS);

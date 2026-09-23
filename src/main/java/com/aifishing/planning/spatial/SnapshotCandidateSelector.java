@@ -3,7 +3,7 @@ package com.aifishing.planning.spatial;
 import com.aifishing.common.geo.WaterDepth;
 import com.aifishing.lake.processing.dto.FeatureType;
 import com.aifishing.planning.PlanningProperties;
-import com.aifishing.planning.candidate.CandidateDeduper;
+import com.aifishing.planning.candidate.CandidateCompressionReason;
 import com.aifishing.planning.candidate.CandidateSpot;
 import com.aifishing.planning.filter.RejectionReason;
 import com.aifishing.planning.ranking.StrategyWeightResolver;
@@ -18,7 +18,7 @@ import com.aifishing.strategy.domain.TechniquePreference;
 import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
-import java.util.EnumMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -27,20 +27,16 @@ import java.util.UUID;
 public class SnapshotCandidateSelector {
 
     private final StrategyWeightResolver weightResolver;
-    private final CandidateDeduper deduper;
 
-    public SnapshotCandidateSelector(StrategyWeightResolver weightResolver, CandidateDeduper deduper) {
+    public SnapshotCandidateSelector(StrategyWeightResolver weightResolver) {
         this.weightResolver = weightResolver;
-        this.deduper = deduper;
     }
 
     public Result select(SpatialSnapshotView view, PlanningContext context, Map<RejectionReason, Integer> rejections) {
-        GenerateProfiler.current().start(GenerateProfiler.STATIC_SPATIAL_LOAD);
         List<CandidateSpot> allTargets = view.targets().stream()
                 .filter(row -> row.getTargetKind() != TargetKind.ZONE)
                 .map(row -> toSpot(row, view))
                 .toList();
-        GenerateProfiler.current().end(GenerateProfiler.STATIC_SPATIAL_LOAD);
         FishingStrategyProfile profile = context.profile();
         PlanningProperties.Candidates limits = context.properties().getCandidates();
         List<StrategyTimeWindow> windows = profile.timeWindows();
@@ -65,17 +61,40 @@ public class SnapshotCandidateSelector {
             }
             selected.addAll(pass);
         }
-        List<CandidateSpot> deduped = deduper.dedupe(
-                selected,
-                limits.getMinSpacingM(),
-                limits.getMaxPerFeatureType(),
-                limits.getMaxTotal()
-        );
-        int dropped = selected.size() - deduped.size();
-        if (dropped > 0) {
-            rejections.merge(RejectionReason.DUPLICATE, dropped, Integer::sum);
+        GenerateProfiler.current().set("candidatesBeforeDedup", selected.size());
+        GenerateProfiler.current().compression().setBeforeIdentity(selected.size());
+        List<CandidateSpot> physical = collapseToPhysicalIdentity(selected);
+        GenerateProfiler.current().set("candidatesAfterDedup", physical.size());
+        GenerateProfiler.current().compression().setAfterIdentity(physical.size());
+        return new Result(physical, depthFallback, allTargets);
+    }
+
+    private List<CandidateSpot> collapseToPhysicalIdentity(List<CandidateSpot> selected) {
+        Map<UUID, CandidateSpot> byId = new LinkedHashMap<>();
+        int merged = 0;
+        for (CandidateSpot spot : selected) {
+            UUID id = spot.getFishingTargetId() != null ? spot.getFishingTargetId() : spot.getFeatureId();
+            if (id == null) {
+                byId.put(UUID.randomUUID(), stripWindowStamp(spot));
+                continue;
+            }
+            CandidateSpot existing = byId.get(id);
+            if (existing == null) {
+                byId.put(id, stripWindowStamp(spot));
+                continue;
+            }
+            merged++;
         }
-        return new Result(deduped, depthFallback, allTargets);
+        GenerateProfiler.current().compression().add(CandidateCompressionReason.TIME_VARIANT_MERGED, merged);
+        return new ArrayList<>(byId.values());
+    }
+
+    private static CandidateSpot stripWindowStamp(CandidateSpot source) {
+        CandidateSpot physical = source.copy();
+        physical.setWindowFrom(null);
+        physical.setWindowTo(null);
+        physical.setWindowSpecific(false);
+        return physical;
     }
 
     private List<CandidateSpot> filterWindow(
@@ -115,7 +134,7 @@ public class SnapshotCandidateSelector {
             List<TechniquePreference> techniques,
             boolean windowSpecific
     ) {
-        CandidateSpot spot = source;
+        CandidateSpot spot = source.copy();
         spot.setStrategyWeight(weightResolver.weightFor(effective, source.getType()));
         spot.setStrategyRationale(weightResolver.rationaleFor(effective, source.getType()));
         spot.setWindowFrom(window.from());

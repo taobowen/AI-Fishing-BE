@@ -19,6 +19,7 @@ public record CreateTripRequest(
         @NotNull FishSpecies primaryTargetSpecies,
         List<FishSpecies> secondaryTargetSpecies,
         @NotNull LocalDate plannedDate,
+        LocalDate plannedEndDate,
         @NotNull @JsonDeserialize(using = FlexibleLocalTimeDeserializer.class) LocalTime fishingStartTime,
         @NotNull @JsonDeserialize(using = FlexibleLocalTimeDeserializer.class) LocalTime fishingEndTime,
         UUID boatId,

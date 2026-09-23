@@ -11,6 +11,7 @@ import static org.hamcrest.Matchers.not;
 import static org.hamcrest.Matchers.nullValue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -91,6 +92,41 @@ class BoatApiIT extends AbstractIntegrationTest {
     }
 
     @Test
+    void firstUserBoatBecomesDefaultAndLaterBoatsCanTakeOver() throws Exception {
+        MvcResult first = mockMvc.perform(asDev(post("/api/v1/me/boats")).content("""
+                        {
+                          "name": "Default skiff",
+                          "type": "INFLATABLE",
+                          "propulsionTypes": ["GAS_OUTBOARD"]
+                        }
+                        """))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.isDefault", is(true)))
+                .andReturn();
+        String firstId = objectMapper.readTree(first.getResponse().getContentAsString()).get("id").asText();
+
+        MvcResult second = mockMvc.perform(asDev(post("/api/v1/me/boats")).content("""
+                        {
+                          "name": "Backup kayak",
+                          "type": "KAYAK",
+                          "propulsionTypes": ["PADDLE"],
+                          "isDefault": true
+                        }
+                        """))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.isDefault", is(true)))
+                .andReturn();
+        String secondId = objectMapper.readTree(second.getResponse().getContentAsString()).get("id").asText();
+
+        mockMvc.perform(asDev(get("/api/v1/me/boats/" + firstId)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.isDefault", is(false)));
+        mockMvc.perform(asDev(get("/api/v1/me/boats/" + secondId)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.isDefault", is(true)));
+    }
+
+    @Test
     void deleteSoftHidesBoatFromDefaultList() throws Exception {
         MvcResult created = mockMvc.perform(asDev(post("/api/v1/me/boats")).content("""
                         {
@@ -145,5 +181,31 @@ class BoatApiIT extends AbstractIntegrationTest {
                 .andExpect(jsonPath("$.configurationDescription", is("12ft jon boat, not sure about the motor")))
                 .andExpect(jsonPath("$.freeTextHash", not(nullValue())))
                 .andExpect(jsonPath("$.resolvedCapability.missingHints", not(nullValue())));
+    }
+
+    @Test
+    void descriptionPatchDoesNotOverwriteUserMetrics() throws Exception {
+        MvcResult created = mockMvc.perform(asDev(post("/api/v1/me/boats")).content("""
+                        {
+                          "name": "Jon",
+                          "configurationDescription": "12ft jon",
+                          "measuredCruiseSpeedKmh": 12,
+                          "comfortableRoundTripRangeKm": 18,
+                          "windWaveOverride": "LOW"
+                        }
+                        """))
+                .andExpect(status().isCreated())
+                .andReturn();
+        String id = objectMapper.readTree(created.getResponse().getContentAsString()).get("id").asText();
+
+        mockMvc.perform(asDev(patch("/api/v1/me/boats/" + id)).content("""
+                        {
+                          "configurationDescription": "12ft jon plus 24V 100Ah LiFePO4"
+                        }
+                        """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.measuredCruiseSpeedKmh", is(12.0)))
+                .andExpect(jsonPath("$.comfortableRoundTripRangeKm", is(18.0)))
+                .andExpect(jsonPath("$.windWaveOverride", is("LOW")));
     }
 }

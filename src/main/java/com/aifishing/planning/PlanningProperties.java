@@ -12,7 +12,7 @@ import java.util.Map;
 @ConfigurationProperties(prefix = "app.planning")
 public class PlanningProperties {
 
-    private String algorithmVersion = "1.4.0";
+    private String algorithmVersion = "1.5.0";
     private Pipeline userDefaultFeaturePipeline = Pipeline.GIS;
     private Candidates candidates = new Candidates();
     private Ranking ranking = new Ranking();
@@ -23,6 +23,8 @@ public class PlanningProperties {
     private Safety safety = new Safety();
     private Environment environment = new Environment();
     private Spatial spatial = new Spatial();
+    private Search search = new Search();
+    private Tactics tactics = new Tactics();
 
     public String getAlgorithmVersion() {
         return algorithmVersion;
@@ -112,17 +114,38 @@ public class PlanningProperties {
         this.spatial = spatial == null ? new Spatial() : spatial;
     }
 
+    public Search getSearch() {
+        return search;
+    }
+
+    public void setSearch(Search search) {
+        this.search = search == null ? new Search() : search;
+    }
+
+    public Tactics getTactics() {
+        return tactics;
+    }
+
+    public void setTactics(Tactics tactics) {
+        this.tactics = tactics == null ? new Tactics() : tactics;
+    }
+
     public double maxOneWayKm(BoatType type) {
         return boat.maxOneWayKm(type);
     }
 
     public static class Candidates {
         private double minSpacingM = 150;
-        private int maxPerFeatureType = 8;
-        private int maxTotal = 24;
+        private int maxPerFeatureType = 10;
+        private int maxTotal = 32;
         private double depthToleranceM = 0;
         private double fallbackDepthToleranceM = 1.5;
         private double minStrategyWeight = 0.05;
+        private int maxMacroZones = 8;
+        private int maxUnassignedAtomics = 8;
+        private int maxMacroVisitOptions = 48;
+        private int maxPerRegionFeatureType = 3;
+        private double regionCellSizeM = 2500;
 
         public double getMinSpacingM() {
             return minSpacingM;
@@ -170,6 +193,46 @@ public class PlanningProperties {
 
         public void setMinStrategyWeight(double minStrategyWeight) {
             this.minStrategyWeight = minStrategyWeight;
+        }
+
+        public int getMaxMacroZones() {
+            return maxMacroZones <= 0 ? 8 : maxMacroZones;
+        }
+
+        public void setMaxMacroZones(int maxMacroZones) {
+            this.maxMacroZones = maxMacroZones;
+        }
+
+        public int getMaxUnassignedAtomics() {
+            return maxUnassignedAtomics <= 0 ? 8 : maxUnassignedAtomics;
+        }
+
+        public void setMaxUnassignedAtomics(int maxUnassignedAtomics) {
+            this.maxUnassignedAtomics = maxUnassignedAtomics;
+        }
+
+        public int getMaxMacroVisitOptions() {
+            return maxMacroVisitOptions <= 0 ? 48 : maxMacroVisitOptions;
+        }
+
+        public void setMaxMacroVisitOptions(int maxMacroVisitOptions) {
+            this.maxMacroVisitOptions = maxMacroVisitOptions;
+        }
+
+        public int getMaxPerRegionFeatureType() {
+            return maxPerRegionFeatureType <= 0 ? 3 : maxPerRegionFeatureType;
+        }
+
+        public void setMaxPerRegionFeatureType(int maxPerRegionFeatureType) {
+            this.maxPerRegionFeatureType = maxPerRegionFeatureType;
+        }
+
+        public double getRegionCellSizeM() {
+            return regionCellSizeM <= 0 ? 2500 : regionCellSizeM;
+        }
+
+        public void setRegionCellSizeM(double regionCellSizeM) {
+            this.regionCellSizeM = regionCellSizeM;
         }
     }
 
@@ -268,6 +331,11 @@ public class PlanningProperties {
         private int whyThisTimeHorizonSlots = 8;
         private int beamWidth = 8;
         private double dwellDecay = 0.85;
+        private int maxZoneVisitMinutes = 180;
+        private int maxZoneEntries = 2;
+        private List<Integer> zonePackageMinutes = new ArrayList<>(List.of(45, 90, 135, 180));
+        private List<Integer> pointDwellMinutes = new ArrayList<>(List.of(15, 20, 30, 45));
+        private List<Integer> pathDwellMinutes = new ArrayList<>(List.of(30, 45, 60, 90));
 
         public int getMinSpotMinutes() {
             return minSpotMinutes;
@@ -383,6 +451,200 @@ public class PlanningProperties {
 
         public void setDwellDecay(double dwellDecay) {
             this.dwellDecay = dwellDecay;
+        }
+
+        public int getMaxZoneVisitMinutes() {
+            return maxZoneVisitMinutes;
+        }
+
+        public void setMaxZoneVisitMinutes(int maxZoneVisitMinutes) {
+            this.maxZoneVisitMinutes = maxZoneVisitMinutes <= 0 ? 180 : maxZoneVisitMinutes;
+        }
+
+        public int getMaxZoneEntries() {
+            return maxZoneEntries;
+        }
+
+        public void setMaxZoneEntries(int maxZoneEntries) {
+            this.maxZoneEntries = maxZoneEntries <= 0 ? 2 : maxZoneEntries;
+        }
+
+        public List<Integer> getZonePackageMinutes() {
+            return zonePackageMinutes;
+        }
+
+        public void setZonePackageMinutes(List<Integer> zonePackageMinutes) {
+            this.zonePackageMinutes = zonePackageMinutes == null || zonePackageMinutes.isEmpty()
+                    ? new ArrayList<>(List.of(45, 90, 135, 180))
+                    : new ArrayList<>(zonePackageMinutes);
+        }
+
+        public List<Integer> getPointDwellMinutes() {
+            return pointDwellMinutes;
+        }
+
+        public void setPointDwellMinutes(List<Integer> pointDwellMinutes) {
+            this.pointDwellMinutes = pointDwellMinutes == null || pointDwellMinutes.isEmpty()
+                    ? new ArrayList<>(List.of(15, 20, 30, 45))
+                    : new ArrayList<>(pointDwellMinutes);
+        }
+
+        public List<Integer> getPathDwellMinutes() {
+            return pathDwellMinutes;
+        }
+
+        public void setPathDwellMinutes(List<Integer> pathDwellMinutes) {
+            this.pathDwellMinutes = pathDwellMinutes == null || pathDwellMinutes.isEmpty()
+                    ? new ArrayList<>(List.of(30, 45, 60, 90))
+                    : new ArrayList<>(pathDwellMinutes);
+        }
+    }
+
+    public static class Search {
+        private int minBeamWidth = 4;
+        private int maxBeamWidth = 24;
+        private int defaultBeamWidth = 16;
+        private int minLookaheadHorizon = 3;
+        private int maxLookaheadHorizon = 5;
+        private int defaultLookaheadHorizon = 4;
+        private int minEffectiveStops = 2;
+        private int hardMaxStops = 10;
+        private int fullRouteMaxStops = 5;
+        private int maxExpansions = 20_000;
+        private double futurePotentialLambda = 0.2;
+        private int commitPrefixStops = 1;
+        private long maxWallClockMs = 5_000;
+
+        public int getMinBeamWidth() {
+            return minBeamWidth <= 0 ? 4 : minBeamWidth;
+        }
+
+        public void setMinBeamWidth(int minBeamWidth) {
+            this.minBeamWidth = minBeamWidth;
+        }
+
+        public int getMaxBeamWidth() {
+            return maxBeamWidth <= 0 ? 24 : maxBeamWidth;
+        }
+
+        public void setMaxBeamWidth(int maxBeamWidth) {
+            this.maxBeamWidth = maxBeamWidth;
+        }
+
+        public int getDefaultBeamWidth() {
+            return defaultBeamWidth <= 0 ? 16 : defaultBeamWidth;
+        }
+
+        public void setDefaultBeamWidth(int defaultBeamWidth) {
+            this.defaultBeamWidth = defaultBeamWidth;
+        }
+
+        public int getMinLookaheadHorizon() {
+            return minLookaheadHorizon <= 0 ? 3 : minLookaheadHorizon;
+        }
+
+        public void setMinLookaheadHorizon(int minLookaheadHorizon) {
+            this.minLookaheadHorizon = minLookaheadHorizon;
+        }
+
+        public int getMaxLookaheadHorizon() {
+            return maxLookaheadHorizon <= 0 ? 5 : maxLookaheadHorizon;
+        }
+
+        public void setMaxLookaheadHorizon(int maxLookaheadHorizon) {
+            this.maxLookaheadHorizon = maxLookaheadHorizon;
+        }
+
+        public int getDefaultLookaheadHorizon() {
+            return defaultLookaheadHorizon <= 0 ? 4 : defaultLookaheadHorizon;
+        }
+
+        public void setDefaultLookaheadHorizon(int defaultLookaheadHorizon) {
+            this.defaultLookaheadHorizon = defaultLookaheadHorizon;
+        }
+
+        public int getMinEffectiveStops() {
+            return minEffectiveStops <= 0 ? 2 : minEffectiveStops;
+        }
+
+        public void setMinEffectiveStops(int minEffectiveStops) {
+            this.minEffectiveStops = minEffectiveStops;
+        }
+
+        /**
+         * @deprecated use {@link #getMinEffectiveStops()}
+         */
+        @Deprecated
+        public int getMinMaxStops() {
+            return getMinEffectiveStops();
+        }
+
+        /**
+         * @deprecated use {@link #setMinEffectiveStops(int)}
+         */
+        @Deprecated
+        public void setMinMaxStops(int minMaxStops) {
+            this.minEffectiveStops = minMaxStops;
+        }
+
+        public int getHardMaxStops() {
+            return hardMaxStops <= 0 ? 10 : hardMaxStops;
+        }
+
+        public void setHardMaxStops(int hardMaxStops) {
+            this.hardMaxStops = hardMaxStops;
+        }
+
+        public int getFullRouteMaxStops() {
+            return fullRouteMaxStops <= 0 ? 5 : fullRouteMaxStops;
+        }
+
+        public void setFullRouteMaxStops(int fullRouteMaxStops) {
+            this.fullRouteMaxStops = fullRouteMaxStops;
+        }
+
+        public int getMaxExpansions() {
+            return maxExpansions <= 0 ? 20_000 : maxExpansions;
+        }
+
+        public void setMaxExpansions(int maxExpansions) {
+            this.maxExpansions = maxExpansions;
+        }
+
+        public long getMaxWallClockMs() {
+            return maxWallClockMs < 0 ? 5_000 : maxWallClockMs;
+        }
+
+        public void setMaxWallClockMs(long maxWallClockMs) {
+            this.maxWallClockMs = maxWallClockMs;
+        }
+
+        public double getFuturePotentialLambda() {
+            return futurePotentialLambda < 0 ? 0.2 : futurePotentialLambda;
+        }
+
+        public void setFuturePotentialLambda(double futurePotentialLambda) {
+            this.futurePotentialLambda = futurePotentialLambda;
+        }
+
+        public int getCommitPrefixStops() {
+            return commitPrefixStops <= 0 ? 1 : commitPrefixStops;
+        }
+
+        public void setCommitPrefixStops(int commitPrefixStops) {
+            this.commitPrefixStops = commitPrefixStops;
+        }
+    }
+
+    public static class Tactics {
+        private int staleTimeoutSeconds = 900;
+
+        public int getStaleTimeoutSeconds() {
+            return staleTimeoutSeconds <= 0 ? 900 : staleTimeoutSeconds;
+        }
+
+        public void setStaleTimeoutSeconds(int staleTimeoutSeconds) {
+            this.staleTimeoutSeconds = staleTimeoutSeconds;
         }
     }
 
@@ -599,8 +861,8 @@ public class PlanningProperties {
     }
 
     public static class Spatial {
-        private String derivationVersion = "spatial-targets-v2";
-        private String zoneBuilderVersion = "physical-zones-v3";
+        private String derivationVersion = "spatial-targets-v3";
+        private String zoneBuilderVersion = "physical-zones-v4";
         private String navigationVersion = "water-nav-v3";
         private double concaveHullEdgeLengthRatio = 0.35;
         private double sliverMinAreaM2 = 80;
@@ -624,6 +886,8 @@ public class PlanningProperties {
         private double localPathCellSizeM = 25;
         private int localPathMaxCells = 40_000;
         private double internalCruiseKmh = 6;
+        /** Micros within this distance share one static-plan dwell when land does not separate them. */
+        private double castingOpportunityMeters = 40;
         private int maxZonePortals = 4;
         private int maxPortalPairsPerZone = 8;
         private double sampleAlongM = 40;
@@ -640,7 +904,7 @@ public class PlanningProperties {
 
         public void setDerivationVersion(String derivationVersion) {
             this.derivationVersion = derivationVersion == null || derivationVersion.isBlank()
-                    ? "spatial-targets-v2"
+                    ? "spatial-targets-v3"
                     : derivationVersion;
         }
 
@@ -650,7 +914,7 @@ public class PlanningProperties {
 
         public void setZoneBuilderVersion(String zoneBuilderVersion) {
             this.zoneBuilderVersion = zoneBuilderVersion == null || zoneBuilderVersion.isBlank()
-                    ? "physical-zones-v3"
+                    ? "physical-zones-v4"
                     : zoneBuilderVersion;
         }
 
@@ -839,6 +1103,14 @@ public class PlanningProperties {
 
         public void setInternalCruiseKmh(double internalCruiseKmh) {
             this.internalCruiseKmh = internalCruiseKmh <= 0 ? 6 : internalCruiseKmh;
+        }
+
+        public double getCastingOpportunityMeters() {
+            return castingOpportunityMeters;
+        }
+
+        public void setCastingOpportunityMeters(double castingOpportunityMeters) {
+            this.castingOpportunityMeters = castingOpportunityMeters <= 0 ? 40 : castingOpportunityMeters;
         }
 
         public int getMaxZonePortals() {

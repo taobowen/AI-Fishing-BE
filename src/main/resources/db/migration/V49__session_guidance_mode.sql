@@ -1,0 +1,2 @@
+ALTER TABLE fishing_sessions
+    ADD COLUMN guidance_mode VARCHAR(32) NOT NULL DEFAULT 'AGENT_GUIDED';

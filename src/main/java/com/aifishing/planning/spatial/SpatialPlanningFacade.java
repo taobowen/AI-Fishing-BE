@@ -1,10 +1,7 @@
 package com.aifishing.planning.spatial;
 
-import com.aifishing.lake.processing.extract.GeoMetrics;
 import com.aifishing.planning.candidate.CandidateSpot;
-import com.aifishing.planning.filter.BoatCapabilityFilter;
 import com.aifishing.planning.ranking.RankedCandidate;
-import com.aifishing.planning.ranking.SpotScore;
 import com.aifishing.planning.service.PlanningContext;
 import com.aifishing.planning.spatial.domain.LakeFishingZone;
 import com.aifishing.planning.spatial.domain.LakeFishingZoneMember;
@@ -47,20 +44,30 @@ public class SpatialPlanningFacade {
             return ranked == null ? List.of() : ranked;
         }
         GenerateProfiler.current().start(GenerateProfiler.OPERATIONAL_VISIT_BUILD);
+        boolean alreadyZoned = ranked.stream().anyMatch(item -> item.spot().getTargetKind() == TargetKind.ZONE);
+        List<CandidateSpot> zoneVisits;
         Map<UUID, RankedCandidate> byTargetId = new HashMap<>();
         List<CandidateSpot> atomics = new ArrayList<>();
         for (RankedCandidate candidate : ranked) {
-            UUID id = candidate.spot().getFishingTargetId();
-            if (id != null) {
-                byTargetId.put(id, candidate);
+            ZoneScoreAggregation.index(byTargetId, candidate);
+            if (candidate.spot().getTargetKind() != TargetKind.ZONE) {
+                atomics.add(candidate.spot());
             }
-            atomics.add(candidate.spot());
         }
-        List<CandidateSpot> zoneVisits;
-        if (context.spatialSnapshot() != null) {
+        if (alreadyZoned) {
+            zoneVisits = new ArrayList<>();
+            for (RankedCandidate candidate : ranked) {
+                if (candidate.spot().getTargetKind() == TargetKind.ZONE) {
+                    zoneVisits.addAll(scopeDeriver.derive(candidate.spot(), context));
+                }
+            }
+            GenerateProfiler.current().set("physicalZonesConsidered",
+                    ranked.stream().filter(item -> item.spot().getTargetKind() == TargetKind.ZONE).count());
+        } else if (context.spatialSnapshot() != null) {
             zoneVisits = scopesFromSnapshot(context, byTargetId);
         } else {
             List<CandidateSpot> clustered = zoneBuilder.cluster(atomics, context.geometry(), context.properties());
+            GenerateProfiler.current().set("physicalZonesConsidered", clustered.size());
             zoneVisits = new ArrayList<>();
             for (CandidateSpot zone : clustered) {
                 zoneVisits.addAll(scopeDeriver.derive(zone, context));
@@ -69,22 +76,28 @@ public class SpatialPlanningFacade {
         List<RankedCandidate> out = new ArrayList<>();
         Set<UUID> zoneMemberIds = new HashSet<>();
         for (CandidateSpot zone : zoneVisits) {
+            RankedCandidate aggregated = ZoneScoreAggregation.aggregate(zone, byTargetId);
+            if (aggregated == null) {
+                continue;
+            }
             zone.getZoneMembers().forEach(member -> {
                 if (member.getFishingTargetId() != null) {
                     zoneMemberIds.add(member.getFishingTargetId());
                 }
+                if (member.getFeatureId() != null) {
+                    zoneMemberIds.add(member.getFeatureId());
+                }
             });
-            double score = zone.getZoneMembers().stream()
-                    .map(member -> byTargetId.get(member.getFishingTargetId()))
-                    .filter(java.util.Objects::nonNull)
-                    .mapToDouble(item -> item.score().finalScore())
-                    .average()
-                    .orElse(zone.getStrategyWeight());
-            out.add(new RankedCandidate(zone, new SpotScore(score, ranked.get(0).score().breakdown()), null));
+            out.add(aggregated);
         }
         for (RankedCandidate candidate : ranked) {
-            UUID id = candidate.spot().getFishingTargetId();
-            if (id != null && zoneMemberIds.contains(id)) {
+            if (candidate.spot().getTargetKind() == TargetKind.ZONE) {
+                continue;
+            }
+            UUID targetId = candidate.spot().getFishingTargetId();
+            UUID featureId = candidate.spot().getFeatureId();
+            if ((targetId != null && zoneMemberIds.contains(targetId))
+                    || (featureId != null && zoneMemberIds.contains(featureId))) {
                 continue;
             }
             out.add(candidate);
@@ -100,6 +113,7 @@ public class SpatialPlanningFacade {
     ) {
         SpatialSnapshotView view = context.spatialSnapshot();
         List<CandidateSpot> scopes = new ArrayList<>();
+        int considered = 0;
         for (LakeFishingZone zone : view.zones()) {
             List<LakeFishingZoneMember> members = view.membersByZone().getOrDefault(zone.getId(), List.of());
             List<CandidateSpot> memberSpots = new ArrayList<>();
@@ -112,9 +126,12 @@ public class SpatialPlanningFacade {
             if (memberSpots.size() < context.properties().getSpatial().getClusterMinMembers()) {
                 continue;
             }
-            if (zoneBeyondBoatReach(zone, context)) {
+            List<VisitPortal> portals = view.portalsByZone().getOrDefault(zone.getId(), List.of());
+            if (!ZoneReachability.uncertainGeometry(portals)
+                    && ZoneReachability.clearlyUnreachable(zone.getRepresentativePoint(), context)) {
                 continue;
             }
+            considered++;
             CandidateSpot physical = new CandidateSpot();
             physical.setFeatureId(zone.getId());
             physical.setZoneId(zone.getId());
@@ -132,19 +149,14 @@ public class SpatialPlanningFacade {
                 physical.setExitPoint(physical.getPortals().get(physical.getPortals().size() - 1).point());
             }
             physical.setStrategyWeight(memberSpots.stream().mapToDouble(CandidateSpot::getStrategyWeight).average().orElse(0.5));
+            List<com.aifishing.strategy.domain.TechniquePreference> techniques = new ArrayList<>();
+            for (CandidateSpot member : memberSpots) {
+                techniques.addAll(member.getTechniques());
+            }
+            physical.setTechniques(techniques);
             scopes.addAll(scopeDeriver.derive(physical, context));
         }
+        GenerateProfiler.current().set("physicalZonesConsidered", considered);
         return scopes;
-    }
-
-    private static boolean zoneBeyondBoatReach(LakeFishingZone zone, PlanningContext context) {
-        if (context.routeStartPoint() == null || zone.getRepresentativePoint() == null) {
-            return false;
-        }
-        double capKm = BoatCapabilityFilter.travelCapKm(context);
-        if (!Double.isFinite(capKm)) {
-            return false;
-        }
-        return GeoMetrics.distanceM(context.routeStartPoint(), zone.getRepresentativePoint()) / 1000.0 > capKm;
     }
 }

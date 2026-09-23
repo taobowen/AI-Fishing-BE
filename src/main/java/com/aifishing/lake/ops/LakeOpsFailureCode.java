@@ -1,0 +1,10 @@
+package com.aifishing.lake.ops;
+
+public enum LakeOpsFailureCode {
+    IDENTITY_RESOLUTION_FAILED,
+    GIS_PROCESSING_FAILED,
+    NO_PERSISTED_FEATURES,
+    SPATIAL_SNAPSHOT_FAILED,
+    WORKER_START_FAILED,
+    JOB_TIMEOUT
+}

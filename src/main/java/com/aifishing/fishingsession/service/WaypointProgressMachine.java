@@ -40,10 +40,19 @@ public class WaypointProgressMachine {
             Map<UUID, TripWaypoint> waypoints,
             List<SessionLocationPoint> acceptedUpToCurrent
     ) {
+        applyAcceptedHistory(progress, waypoints, acceptedUpToCurrent, null);
+    }
+
+    public void applyAcceptedHistory(
+            List<SessionWaypointProgress> progress,
+            Map<UUID, TripWaypoint> waypoints,
+            List<SessionLocationPoint> acceptedUpToCurrent,
+            UUID activeGuidanceTargetTripWaypointId
+    ) {
         if (acceptedUpToCurrent.isEmpty()) {
             return;
         }
-        SessionWaypointProgress current = SessionMapper.currentWaypoint(progress);
+        SessionWaypointProgress current = executionWaypoint(progress, activeGuidanceTargetTripWaypointId);
         if (current == null) {
             return;
         }
@@ -69,12 +78,32 @@ public class WaypointProgressMachine {
             current.setFirstApproachedAt(point.getRecordedAt());
         }
 
+        boolean guidanceTarget = activeGuidanceTargetTripWaypointId != null
+                && activeGuidanceTargetTripWaypointId.equals(current.getTripWaypointId());
         switch (current.getStatus()) {
             case NAVIGATING -> maybeArrive(current, acceptedUpToCurrent, there, distanceM, cfg);
+            case UPCOMING -> {
+                if (guidanceTarget) {
+                    maybeArrive(current, acceptedUpToCurrent, there, distanceM, cfg);
+                }
+            }
             case ARRIVED, FISHING -> maybeDwellAndDepart(current, progress, previous, point, there, distanceM, cfg);
             default -> {
             }
         }
+    }
+
+    static SessionWaypointProgress executionWaypoint(
+            List<SessionWaypointProgress> progress,
+            UUID activeGuidanceTargetTripWaypointId
+    ) {
+        SessionWaypointProgress targeted = SessionMapper.progressForWaypoint(progress, activeGuidanceTargetTripWaypointId);
+        if (targeted != null
+                && targeted.getStatus() != WaypointProgressStatus.SKIPPED
+                && targeted.getStatus() != WaypointProgressStatus.COMPLETED) {
+            return targeted;
+        }
+        return SessionMapper.currentWaypoint(progress);
     }
 
     public void manualArrive(SessionWaypointProgress row, Instant at) {

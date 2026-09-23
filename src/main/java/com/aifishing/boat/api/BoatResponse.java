@@ -6,6 +6,7 @@ import com.aifishing.common.enums.BoatProvenance;
 import com.aifishing.common.enums.BoatType;
 import com.aifishing.common.enums.PropulsionType;
 import com.aifishing.common.enums.WindWaveCapability;
+import com.fasterxml.jackson.annotation.JsonProperty;
 
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -32,6 +33,7 @@ public record BoatResponse(
         String notes,
         boolean active,
         boolean systemGenerated,
+        @JsonProperty("isDefault") boolean isDefault,
         BoatProvenance provenance,
         Instant createdAt,
         Instant updatedAt,
@@ -58,6 +60,7 @@ public record BoatResponse(
                 boat.getNotes(),
                 boat.isActive(),
                 boat.isSystemGenerated(),
+                boat.isDefaultBoat(),
                 boat.getProvenance(),
                 boat.getCreatedAt(),
                 boat.getUpdatedAt(),

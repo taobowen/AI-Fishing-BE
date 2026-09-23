@@ -60,7 +60,7 @@ export USER_BEARER=...
 ./scripts/bootstrap-validation-lakes.sh
 ```
 
-Use `--max-time` 1800 (script default). ALB idle timeout is 15 minutes on the CDK load balancer.
+Use `--max-time` 1800 on each HTTP call (script default). Import and process return **202**; the bootstrap script polls `GET /api/v1/admin/lakes/jobs/{jobId}` (that GET reconciles STOPPED ECS worker tasks). ALB idle timeout stays **15 minutes** on the CDK load balancer (Generate Plan still runs on the API). Do not lower it until a representative Simcoe Generate Plan is measured.
 
 **AVAILABLE dataset status alone never skips import.** Only `--skip-import` or `--resume` (steps already finished in *this* run’s state file) skip a live POST.
 
@@ -88,8 +88,8 @@ Commit [`docs/reports/production-data-validation.md`](reports/production-data-va
 
 ## Recovery
 
-- Retry `POST /api/v1/admin/lakes/{id}/import`. `FAILED` keeps last successful canonical rows (`lastSuccessfulImportAt` unchanged on failure).
-- Retry `POST /api/v1/admin/lakes/{id}/process`. A failed extractor keeps last-good rows for that feature type.
+- Retry `POST /api/v1/admin/lakes/{id}/import`. Same in-flight work returns the existing `jobId` with 202. `FAILED` keeps last successful canonical rows (`lastSuccessfulImportAt` unchanged on failure).
+- Retry `POST /api/v1/admin/lakes/{id}/process`. A failed extractor keeps last-good rows for that feature type. GIS/HYBRID process does not mark the ops job SUCCEEDED until the spatial snapshot is READY.
 - Retry user `POST /api/v1/trips/{id}/plan` `{}`. Creates a **new** StrategyRun; previous COMPLETED runs remain in history.
 - ECS restart is safe: state is RDS + object storage. No manual SQL.
 

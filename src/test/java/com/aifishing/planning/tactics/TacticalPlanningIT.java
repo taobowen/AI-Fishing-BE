@@ -233,7 +233,7 @@ class TacticalPlanningIT extends AbstractIntegrationTest {
 
     private org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder generate(UUID tripId, UUID strategyRunId) {
         return asDev(post("/api/v1/trips/" + tripId + "/plan")
-                .content("{\"strategyRunId\":\"" + strategyRunId + "\"}"));
+                .content("{\"strategyRunId\":\"" + strategyRunId + "\",\"includeAiTactics\":true}"));
     }
 
     private record PlannedTrip(UUID tripId, UUID strategyRunId) {

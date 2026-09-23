@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnWebApplication;
 import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -37,6 +38,8 @@ import java.time.Instant;
 import java.util.List;
 
 @Configuration
+@Profile("!worker")
+@ConditionalOnWebApplication(type = ConditionalOnWebApplication.Type.SERVLET)
 public class SecurityConfig {
 
     @Bean
@@ -106,6 +109,7 @@ public class SecurityConfig {
 
     @Configuration
     @Profile("prod")
+    @ConditionalOnWebApplication(type = ConditionalOnWebApplication.Type.SERVLET)
     static class ProdSecurityConfig {
 
         private final AuthProperties authProperties;

@@ -3,6 +3,8 @@ package com.aifishing.feedback.catchlog.dto;
 import com.aifishing.common.enums.FishSpecies;
 import com.aifishing.common.enums.TechniqueType;
 import com.aifishing.feedback.catchlog.domain.CatchOutcome;
+import com.aifishing.feedback.catchlog.domain.SizeBucket;
+import com.fasterxml.jackson.annotation.JsonProperty;
 
 public record UpdateCatchRequest(
         CatchOutcome outcome,
@@ -11,6 +13,8 @@ public record UpdateCatchRequest(
         Double weightKg,
         TechniqueType techniqueType,
         String lureName,
-        String notes
+        String notes,
+        @JsonProperty("isTargetSpecies") Boolean isTargetSpecies,
+        SizeBucket sizeBucket
 ) {
 }

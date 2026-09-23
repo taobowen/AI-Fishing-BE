@@ -1,0 +1,87 @@
+openapi: 3.1.0
+info:
+  title: Fishing Guidance API
+  version: guidance.contracts.v1
+  description: >
+    Static contract for Phase 3 controllers. Not merged into live /v3/api-docs.
+    Auth matches existing fishing-session APIs. Client hints are non-authoritative.
+servers:
+  - url: /
+paths:
+  /api/v1/fishing-sessions/{sessionId}/guidance/decisions:
+    post:
+      operationId: createGuidanceDecision
+      summary: Request a delivered guidance decision
+      parameters:
+        - $ref: '#/components/parameters/SessionId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '../contracts/guidance-contracts.v1.json#/$defs/GuidanceDecisionRequest'
+      responses:
+        '200':
+          description: Delivered decision for this run
+          content:
+            application/json:
+              schema:
+                $ref: '../contracts/guidance-contracts.v1.json#/$defs/GuidanceCurrentResponse'
+  /api/v1/fishing-sessions/{sessionId}/guidance/current:
+    get:
+      operationId: getCurrentGuidance
+      summary: Latest delivered decision, not the raw candidate
+      parameters:
+        - $ref: '#/components/parameters/SessionId'
+      responses:
+        '200':
+          description: Current delivered guidance
+          content:
+            application/json:
+              schema:
+                $ref: '../contracts/guidance-contracts.v1.json#/$defs/GuidanceCurrentResponse'
+  /api/v1/fishing-sessions/{sessionId}/guidance/decisions/{decisionId}/feedback:
+    post:
+      operationId: submitGuidanceFeedback
+      summary: Record feedback on a delivered decision
+      parameters:
+        - $ref: '#/components/parameters/SessionId'
+        - name: decisionId
+          in: path
+          required: true
+          schema:
+            $ref: '../contracts/guidance-contracts.v1.json#/$defs/Uuid'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '../contracts/guidance-contracts.v1.json#/$defs/GuidanceFeedbackRequest'
+      responses:
+        '204':
+          description: Feedback recorded
+components:
+  parameters:
+    SessionId:
+      name: sessionId
+      in: path
+      required: true
+      schema:
+        $ref: '../contracts/guidance-contracts.v1.json#/$defs/Uuid'
+  schemas:
+    GuidanceRejectReason:
+      $ref: '../contracts/guidance-contracts.v1.json#/$defs/GuidanceRejectReason'
+    OutcomeAttribution:
+      $ref: '../contracts/guidance-contracts.v1.json#/$defs/OutcomeAttribution'
+    HistoricalPerformance:
+      $ref: '../contracts/guidance-contracts.v1.json#/$defs/HistoricalPerformance'
+    LiveWaypointActivity:
+      $ref: '../contracts/guidance-contracts.v1.json#/$defs/LiveWaypointActivity'
+    InferredUserPreference:
+      $ref: '../contracts/guidance-contracts.v1.json#/$defs/InferredUserPreference'
+    RetrievedMemory:
+      $ref: '../contracts/guidance-contracts.v1.json#/$defs/RetrievedMemory'
+    LearningJobType:
+      $ref: '../contracts/guidance-contracts.v1.json#/$defs/LearningJobType'
+    WindDirectionBucket:
+      $ref: '../contracts/guidance-contracts.v1.json#/$defs/WindDirectionBucket'

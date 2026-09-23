@@ -1,6 +1,7 @@
 package com.aifishing.trip.api;
 
 import com.aifishing.common.enums.TripStatus;
+import com.aifishing.trip.service.PastTripQueryService;
 import com.aifishing.trip.service.TripService;
 import jakarta.validation.Valid;
 import org.springframework.format.annotation.DateTimeFormat;
@@ -16,6 +17,7 @@ import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.time.LocalDate;
+import java.time.YearMonth;
 import java.util.List;
 import java.util.UUID;
 
@@ -24,9 +26,11 @@ import java.util.UUID;
 public class TripController {
 
     private final TripService tripService;
+    private final PastTripQueryService pastTripQueryService;
 
-    public TripController(TripService tripService) {
+    public TripController(TripService tripService, PastTripQueryService pastTripQueryService) {
         this.tripService = tripService;
+        this.pastTripQueryService = pastTripQueryService;
     }
 
     @GetMapping
@@ -36,6 +40,13 @@ public class TripController {
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to
     ) {
         return tripService.list(status, from, to);
+    }
+
+    @GetMapping("/past")
+    public List<PastTripResponse> past(
+            @RequestParam @DateTimeFormat(pattern = "yyyy-MM") YearMonth month
+    ) {
+        return pastTripQueryService.listPast(month);
     }
 
     @PostMapping

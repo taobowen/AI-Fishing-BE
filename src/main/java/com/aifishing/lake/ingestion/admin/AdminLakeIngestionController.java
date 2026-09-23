@@ -2,9 +2,13 @@ package com.aifishing.lake.ingestion.admin;
 
 import com.aifishing.lake.ingestion.dto.DatasetType;
 import com.aifishing.lake.ingestion.job.LakeDataIngestionService;
+import com.aifishing.lake.ops.LakeOpsJobResponse;
+import com.aifishing.lake.ops.LakeOpsJobService;
 import com.aifishing.seed.ValidationCatalogResponse;
 import com.aifishing.seed.ValidationCatalogService;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -24,15 +28,18 @@ public class AdminLakeIngestionController {
     private final LakeDataIngestionService ingestionService;
     private final ValidationCatalogService catalogService;
     private final LakeBootstrapValidationService bootstrapValidationService;
+    private final LakeOpsJobService lakeOpsJobService;
 
     public AdminLakeIngestionController(
             LakeDataIngestionService ingestionService,
             ValidationCatalogService catalogService,
-            LakeBootstrapValidationService bootstrapValidationService
+            LakeBootstrapValidationService bootstrapValidationService,
+            LakeOpsJobService lakeOpsJobService
     ) {
         this.ingestionService = ingestionService;
         this.catalogService = catalogService;
         this.bootstrapValidationService = bootstrapValidationService;
+        this.lakeOpsJobService = lakeOpsJobService;
     }
 
     @PostMapping("/validation-catalog")
@@ -54,11 +61,11 @@ public class AdminLakeIngestionController {
     }
 
     @PostMapping("/{lakeId}/import")
-    public LakeImportSummaryResponse importLake(
+    public ResponseEntity<LakeOpsJobResponse> importLake(
             @PathVariable UUID lakeId,
             @RequestParam(required = false) DatasetType dataset
     ) {
-        return dataset == null ? ingestionService.importLake(lakeId) : ingestionService.importLake(lakeId, dataset);
+        return ResponseEntity.status(HttpStatus.ACCEPTED).body(lakeOpsJobService.enqueueImport(lakeId, dataset));
     }
 
     @GetMapping("/{lakeId}/datasets")

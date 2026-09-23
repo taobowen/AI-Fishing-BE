@@ -9,4 +9,6 @@ import java.util.UUID;
 public interface WebPlanGenerationRequestRepository extends JpaRepository<WebPlanGenerationRequest, UUID> {
 
     Optional<WebPlanGenerationRequest> findByUserIdAndIdempotencyKey(UUID userId, String idempotencyKey);
+
+    Optional<WebPlanGenerationRequest> findFirstByPlanningRunId(UUID planningRunId);
 }

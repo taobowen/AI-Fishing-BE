@@ -1,8 +1,24 @@
 spring:
+  datasource:
+    hikari:
+      maximum-pool-size: 10
+      minimum-idle: 0
   jpa:
     show-sql: false
 
 app:
+  public-asset-base-url: http://localhost:8080
+  guidance:
+    runtime-mode: DETERMINISTIC
+    dispatch-enabled: false
+    heartbeat-interval-ms: 3600000
+    outbox:
+      poll-interval-ms: 3600000
+      stale-claim-ms: 120000
+    learning-outbox:
+      enabled: false
+      poll-interval-ms: 3600000
+      stale-claim-ms: 120000
   auth:
     client-id: mobile
     web-client-id: web

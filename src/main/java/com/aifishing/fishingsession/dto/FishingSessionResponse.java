@@ -2,6 +2,9 @@ package com.aifishing.fishingsession.dto;
 
 import com.aifishing.common.enums.FishingSessionStatus;
 import com.aifishing.common.geo.GeoPointDto;
+import com.aifishing.fishingsession.domain.SessionGuidanceMode;
+import com.aifishing.guidance.contracts.ActivityStateSource;
+import com.aifishing.guidance.contracts.FishingActivityState;
 import com.aifishing.planning.dto.TransitLegResponse;
 
 import java.time.Instant;
@@ -25,6 +28,12 @@ public record FishingSessionResponse(
         List<TransitLegResponse> transitLegs,
         boolean returningToLaunch,
         GeoPointDto launchPoint,
-        UUID currentTransitLegId
+        UUID currentTransitLegId,
+        FishingActivityState activityState,
+        ActivityStateSource activityStateSource,
+        AdHocFishingStopResponse adHocFishingStop,
+        boolean stationaryFishingPrompt,
+        UUID activeGuidanceTargetTripWaypointId,
+        SessionGuidanceMode guidanceMode
 ) {
 }

@@ -83,4 +83,19 @@ public interface LakeFeatureRepository extends JpaRepository<LakeFeature, UUID> 
     long countByLakeIdAndType(UUID lakeId, FeatureType type);
 
     long countByLakeIdAndPipelineAndType(UUID lakeId, Pipeline pipeline, FeatureType type);
+
+    @Query(value = """
+            select * from lake_features
+             where ST_DWithin(
+                geometry::geography,
+                ST_SetSRID(ST_MakePoint(:longitude, :latitude), 4326)::geography,
+                :radiusMeters
+             )
+             limit 50
+            """, nativeQuery = true)
+    List<LakeFeature> findNearby(
+            @Param("latitude") double latitude,
+            @Param("longitude") double longitude,
+            @Param("radiusMeters") int radiusMeters
+    );
 }

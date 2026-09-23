@@ -49,6 +49,15 @@ public class TransitLegMaterializer {
     }
 
     public List<TripPlanTransitLeg> materialize(RoutePlanner.RouteResult route, PlanningContext context) {
+        GenerateProfiler.current().start(GenerateProfiler.TRANSIT_MATERIALIZATION);
+        try {
+            return materializeInner(route, context);
+        } finally {
+            GenerateProfiler.current().end(GenerateProfiler.TRANSIT_MATERIALIZATION);
+        }
+    }
+
+    private List<TripPlanTransitLeg> materializeInner(RoutePlanner.RouteResult route, PlanningContext context) {
         if (route == null || route.stops() == null || route.stops().isEmpty()) {
             return List.of();
         }

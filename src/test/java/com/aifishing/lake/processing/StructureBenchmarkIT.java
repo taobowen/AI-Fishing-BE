@@ -17,6 +17,7 @@ import com.aifishing.lake.processing.repo.LakeFeatureRepository;
 import com.aifishing.lake.processing.vision.VisionCandidate;
 import com.aifishing.lake.processing.vision.VisionMapClient;
 import com.aifishing.seed.DevSeedIds;
+import com.fasterxml.jackson.databind.JsonNode;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.locationtech.jts.geom.Geometry;
@@ -106,19 +107,16 @@ class StructureBenchmarkIT extends AbstractIntegrationTest {
                 boundaryRepository, datasetStatusRepository
         );
 
-        mockMvc.perform(asDev(post("/api/v1/admin/lakes/" + DevSeedIds.LAKE_ID + "/process").param("pipeline", "GIS")))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.pipeline", is("GIS")))
-                .andExpect(jsonPath("$.processingStatus", is("READY")));
+        JsonNode gis = awaitLakeOpsJobResult(asDev(post("/api/v1/admin/lakes/" + DevSeedIds.LAKE_ID + "/process").param("pipeline", "GIS")));
+        assertThat(gis.path("pipeline").asText()).isEqualTo("GIS");
+        assertThat(gis.path("processingStatus").asText()).isEqualTo("READY");
 
-        mockMvc.perform(asDev(post("/api/v1/admin/lakes/" + DevSeedIds.LAKE_ID + "/process").param("pipeline", "VISION")))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.pipeline", is("VISION")));
+        JsonNode vision = awaitLakeOpsJobResult(asDev(post("/api/v1/admin/lakes/" + DevSeedIds.LAKE_ID + "/process").param("pipeline", "VISION")));
+        assertThat(vision.path("pipeline").asText()).isEqualTo("VISION");
 
         long visionFirst = featureRepository.countByLakeIdAndPipelineAndType(DevSeedIds.LAKE_ID, Pipeline.VISION, FeatureType.HUMP);
         assertThat(visionFirst).isPositive();
-        mockMvc.perform(asDev(post("/api/v1/admin/lakes/" + DevSeedIds.LAKE_ID + "/process").param("pipeline", "VISION")))
-                .andExpect(status().isOk());
+        awaitLakeOpsJobResult(asDev(post("/api/v1/admin/lakes/" + DevSeedIds.LAKE_ID + "/process").param("pipeline", "VISION")));
         assertThat(featureRepository.countByLakeIdAndPipelineAndType(DevSeedIds.LAKE_ID, Pipeline.VISION, FeatureType.HUMP))
                 .isEqualTo(visionFirst);
 
@@ -126,9 +124,8 @@ class StructureBenchmarkIT extends AbstractIntegrationTest {
                 DevSeedIds.LAKE_ID, Pipeline.VISION, FeatureType.HUMP);
         assertThat(visionHumans).allMatch(feature -> feature.getGeometry().getSRID() == 4326);
 
-        mockMvc.perform(asDev(post("/api/v1/admin/lakes/" + DevSeedIds.LAKE_ID + "/process").param("pipeline", "HYBRID")))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.pipeline", is("HYBRID")));
+        JsonNode hybrid = awaitLakeOpsJobResult(asDev(post("/api/v1/admin/lakes/" + DevSeedIds.LAKE_ID + "/process").param("pipeline", "HYBRID")));
+        assertThat(hybrid.path("pipeline").asText()).isEqualTo("HYBRID");
 
         var gisRun = analysisRunRepository
                 .findFirstByLakeIdAndPipelineOrderByStartedAtDesc(DevSeedIds.LAKE_ID, Pipeline.GIS)
@@ -172,13 +169,15 @@ class StructureBenchmarkIT extends AbstractIntegrationTest {
                 contourRepository, bathymetryPointRepository, waterwayRepository,
                 boundaryRepository, datasetStatusRepository
         );
-        ProcessingFixtures.seedShorelineOnly(
+        ProcessingFixtures.seedFullStructure(
                 DevSeedIds.RICE_LAKE_ID, 44.18, -78.17,
-                waterwayRepository, boundaryRepository, datasetStatusRepository
+                contourRepository, bathymetryPointRepository, waterwayRepository,
+                boundaryRepository, datasetStatusRepository
         );
-        ProcessingFixtures.seedBathyOnly(
+        ProcessingFixtures.seedFullStructure(
                 DevSeedIds.SCUGOG_LAKE_ID, 44.15, -78.90,
-                contourRepository, boundaryRepository, datasetStatusRepository
+                contourRepository, bathymetryPointRepository, waterwayRepository,
+                boundaryRepository, datasetStatusRepository
         );
         ProcessingFixtures.seedFullStructure(
                 DevSeedIds.SIMCOE_LAKE_ID, 44.42, -79.37,
@@ -202,8 +201,7 @@ class StructureBenchmarkIT extends AbstractIntegrationTest {
                 .andExpect(jsonPath("$.externalDirectScreenshotVision.notes", notNullValue()));
 
         for (UUID lakeId : List.of(DevSeedIds.RICE_LAKE_ID, DevSeedIds.SCUGOG_LAKE_ID, DevSeedIds.SIMCOE_LAKE_ID)) {
-            mockMvc.perform(asDev(post("/api/v1/admin/lakes/" + lakeId + "/process").param("pipeline", "HYBRID")))
-                    .andExpect(status().isOk());
+            awaitLakeOpsJobResult(asDev(post("/api/v1/admin/lakes/" + lakeId + "/process").param("pipeline", "HYBRID")));
         }
 
         String ids = DevSeedIds.LAKE_ID + "," + DevSeedIds.RICE_LAKE_ID + ","

@@ -4,6 +4,7 @@ import com.aifishing.feedback.effort.domain.EffortSegmentType;
 import com.aifishing.feedback.effort.domain.FishingEffortSegment;
 import org.springframework.data.jpa.repository.JpaRepository;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.UUID;
 
@@ -13,6 +14,11 @@ public interface FishingEffortSegmentRepository extends JpaRepository<FishingEff
 
     List<FishingEffortSegment> findByFishingSessionIdAndSegmentTypeOrderByStartedAtAsc(
             UUID fishingSessionId,
+            EffortSegmentType segmentType
+    );
+
+    List<FishingEffortSegment> findByFishingSessionIdInAndSegmentTypeOrderByStartedAtAsc(
+            Collection<UUID> fishingSessionIds,
             EffortSegmentType segmentType
     );
 

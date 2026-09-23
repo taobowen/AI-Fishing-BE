@@ -64,7 +64,7 @@ public class StructurePipelineReadinessService {
         } else if (blank(run.getSourceSnapshotId())) {
             return StructurePipelineReadiness.of(
                     pipeline, StructurePipelineAvailability.PROVENANCE_INVALID, run.getAnalysisVersion(), 0, run);
-        } else if (!Objects.equals(run.getSourceSnapshotId(), currentFingerprint(lake))) {
+        } else if (!sourceFingerprintCurrent(run, currentFingerprint(lake))) {
             return StructurePipelineReadiness.of(
                     pipeline, StructurePipelineAvailability.STALE, run.getAnalysisVersion(), 0, run);
         }
@@ -111,10 +111,20 @@ public class StructurePipelineReadinessService {
                 || !run.getSourceSnapshotId().equals(gis.getSourceSnapshotId())) {
             return StructurePipelineAvailability.PROVENANCE_INVALID;
         }
-        if (!run.getSourceSnapshotId().equals(currentFingerprint(lake))) {
+        if (!sourceFingerprintCurrent(run, currentFingerprint(lake))) {
             return StructurePipelineAvailability.STALE;
         }
         return StructurePipelineAvailability.READY;
+    }
+
+    private boolean sourceFingerprintCurrent(LakeAnalysisRun run, String currentFp) {
+        if (run == null || currentFp == null) {
+            return false;
+        }
+        if (Objects.equals(run.getSourceSnapshotId(), currentFp)) {
+            return true;
+        }
+        return currentFp.equals(fingerprint.id(contextFactory.structureSourceSubset(run.getSourceDatasetSnapshot())));
     }
 
     private static boolean blank(String value) {

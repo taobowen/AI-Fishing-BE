@@ -12,12 +12,16 @@ import com.aifishing.lake.ingestion.repo.BathymetryContourRepository;
 import com.aifishing.lake.ingestion.repo.BathymetryPointRepository;
 import com.aifishing.lake.ingestion.repo.LakeDatasetStatusRepository;
 import com.aifishing.lake.ingestion.repo.LakeWaterwayRepository;
+import com.aifishing.lake.processing.ProcessingProperties;
 import com.aifishing.lake.processing.dto.Pipeline;
 import org.locationtech.jts.geom.Geometry;
+import org.locationtech.jts.geom.Point;
 import org.springframework.stereotype.Component;
 
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
@@ -40,6 +44,7 @@ public class AnalysisContextFactory {
     private final LakeWaterGeometry lakeWaterGeometry;
     private final LakeDatasetStatusRepository datasetStatusRepository;
     private final ContourTopology contourTopology;
+    private final ProcessingProperties processingProperties;
 
     public AnalysisContextFactory(
             BathymetryContourRepository contourRepository,
@@ -47,7 +52,8 @@ public class AnalysisContextFactory {
             LakeWaterwayRepository waterwayRepository,
             LakeWaterGeometry lakeWaterGeometry,
             LakeDatasetStatusRepository datasetStatusRepository,
-            ContourTopology contourTopology
+            ContourTopology contourTopology,
+            ProcessingProperties processingProperties
     ) {
         this.contourRepository = contourRepository;
         this.bathymetryPointRepository = bathymetryPointRepository;
@@ -55,6 +61,7 @@ public class AnalysisContextFactory {
         this.lakeWaterGeometry = lakeWaterGeometry;
         this.datasetStatusRepository = datasetStatusRepository;
         this.contourTopology = contourTopology;
+        this.processingProperties = processingProperties;
     }
 
     public AnalysisContext create(Lake lake, String analysisVersion, UUID analysisRunId) {
@@ -65,8 +72,9 @@ public class AnalysisContextFactory {
         List<BathymetryContour> contours = contourRepository.findByLakeId(lake.getId());
         List<BathymetryPoint> points = bathymetryPointRepository.findByLakeId(lake.getId());
         List<LakeWaterway> shorelines = waterwayRepository.findByLakeIdAndType(lake.getId(), "SHORELINE");
-        List<LakeWaterway> islands = waterwayRepository.findByLakeIdAndType(lake.getId(), "ISLAND");
+        List<LakeWaterway> waterwayIslands = waterwayRepository.findByLakeIdAndType(lake.getId(), "ISLAND");
         Geometry boundary = lakeWaterGeometry.unionedWater(lake);
+        List<LakeWaterway> islands = islandsIncludingBoundaryRings(lake, waterwayIslands, boundary);
         List<LakeDatasetStatus> statuses = datasetStatusRepository.findByLakeIdOrderByDatasetTypeAsc(lake.getId());
         Map<String, Object> snapshot = sourceSnapshot(
                 statuses,
@@ -79,8 +87,8 @@ public class AnalysisContextFactory {
                 shorelines.size(),
                 shorelines.stream().min(java.util.Comparator.comparing(LakeWaterway::getId))
                         .map(LakeWaterway::getImportVersion).orElse(null),
-                islands.size(),
-                islands.stream().min(java.util.Comparator.comparing(LakeWaterway::getId))
+                waterwayIslands.size(),
+                waterwayIslands.stream().min(java.util.Comparator.comparing(LakeWaterway::getId))
                         .map(LakeWaterway::getImportVersion).orElse(null),
                 boundary
         );
@@ -221,12 +229,80 @@ public class AnalysisContextFactory {
         return snapshot;
     }
 
+    /**
+     * Legacy analysis runs hashed every imported dataset. Readiness now fingerprints only
+     * structure inputs; project stored snapshots to the same subset before comparing.
+     */
+    public Map<String, Object> structureSourceSubset(Map<String, Object> snapshot) {
+        if (snapshot == null || snapshot.isEmpty()) {
+            return Map.of();
+        }
+        Map<String, Object> projected = new LinkedHashMap<>();
+        for (DatasetType type : STRUCTURE_DATASET_TYPES) {
+            Object row = snapshot.get(type.name());
+            if (row != null) {
+                projected.put(type.name(), row);
+            }
+        }
+        Object geometry = snapshot.get("LAKE_BOUNDARY_GEOMETRY");
+        if (geometry != null) {
+            projected.put("LAKE_BOUNDARY_GEOMETRY", geometry);
+        }
+        return projected;
+    }
+
     @SuppressWarnings("unchecked")
     private void putGeometryCount(Map<String, Object> snapshot, String key, long count, String importVersion) {
         Map<String, Object> row = (Map<String, Object>) snapshot.computeIfAbsent(key, ignored -> new LinkedHashMap<>());
         row.put("canonicalCount", count);
         if (importVersion != null) {
             row.put("importVersion", importVersion);
+        }
+    }
+
+    private List<LakeWaterway> islandsIncludingBoundaryRings(
+            Lake lake,
+            List<LakeWaterway> waterwayIslands,
+            Geometry boundary
+    ) {
+        List<Geometry> waterwayGeometries = waterwayIslands.stream()
+                .map(LakeWaterway::getGeometry)
+                .filter(geometry -> geometry != null && !geometry.isEmpty())
+                .toList();
+        List<Geometry> geometries = IslandGeometries.includingInteriorRings(
+                waterwayGeometries,
+                boundary,
+                processingProperties.getIslandMinAreaM2()
+        );
+        List<LakeWaterway> islands = new ArrayList<>(waterwayIslands);
+        for (Geometry geometry : geometries) {
+            if (waterwayGeometries.stream().anyMatch(existing -> sameIsland(existing, geometry))) {
+                continue;
+            }
+            LakeWaterway ring = new LakeWaterway();
+            ring.setLakeId(lake.getId());
+            ring.setType("ISLAND");
+            ring.setGeometry(geometry);
+            ring.setSource("BOUNDARY_RING");
+            ring.setProvider("LAKE_BOUNDARY");
+            ring.setImportVersion("boundary-ring");
+            Point centroid = geometry.getCentroid();
+            ring.setSourceRecordId(String.format(
+                    Locale.US,
+                    "boundary-ring:%.5f:%.5f",
+                    centroid.getY(),
+                    centroid.getX()
+            ));
+            islands.add(ring);
+        }
+        return islands;
+    }
+
+    private static boolean sameIsland(Geometry existing, Geometry candidate) {
+        try {
+            return existing.equalsTopo(candidate) || existing.covers(candidate);
+        } catch (RuntimeException ex) {
+            return false;
         }
     }
 

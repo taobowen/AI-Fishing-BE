@@ -6,6 +6,7 @@ import com.aifishing.lake.processing.dto.FeatureType;
 import com.aifishing.lake.processing.repo.LakeFeatureRepository;
 import com.aifishing.planning.PlanningProperties;
 import com.aifishing.planning.filter.RejectionReason;
+import com.aifishing.planning.spatial.GenerateProfiler;
 import com.aifishing.planning.ranking.StrategyWeightResolver;
 import com.aifishing.planning.service.PlanningContext;
 import com.aifishing.strategy.domain.DepthRange;
@@ -27,24 +28,20 @@ public class CandidateGenerator {
 
     private final LakeFeatureRepository featureRepository;
     private final CandidateLocationService locationService;
-    private final CandidateDeduper deduper;
     private final StrategyWeightResolver weightResolver;
 
     public CandidateGenerator(
             LakeFeatureRepository featureRepository,
             CandidateLocationService locationService,
-            CandidateDeduper deduper,
             StrategyWeightResolver weightResolver
     ) {
         this.featureRepository = featureRepository;
         this.locationService = locationService;
-        this.deduper = deduper;
         this.weightResolver = weightResolver;
     }
 
     public GenerationResult generate(PlanningContext context, Map<RejectionReason, Integer> rejections) {
         FishingStrategyProfile profile = context.profile();
-        PlanningProperties.Candidates limits = context.properties().getCandidates();
         List<StrategyTimeWindow> windows = profile.timeWindows();
         if (windows.isEmpty()) {
             windows = List.of(new StrategyTimeWindow(
@@ -69,17 +66,12 @@ public class CandidateGenerator {
             all.addAll(pass.spots());
             merge(rejections, pass.rejections());
         }
-        List<CandidateSpot> deduped = deduper.dedupe(
-                all,
-                limits.getMinSpacingM(),
-                limits.getMaxPerFeatureType(),
-                limits.getMaxTotal()
-        );
-        int dropped = all.size() - deduped.size();
-        if (dropped > 0) {
-            rejections.merge(RejectionReason.DUPLICATE, dropped, Integer::sum);
-        }
-        return new GenerationResult(deduped, usedDepthFallback);
+        GenerateProfiler.current().set("candidatesBeforeDedup", all.size());
+        GenerateProfiler.current().compression().setBeforeIdentity(all.size());
+        List<CandidateSpot> physical = collapseToPhysicalIdentity(all);
+        GenerateProfiler.current().set("candidatesAfterDedup", physical.size());
+        GenerateProfiler.current().compression().setAfterIdentity(physical.size());
+        return new GenerationResult(physical, usedDepthFallback);
     }
 
     private WindowPass generateForWindow(
@@ -122,17 +114,37 @@ public class CandidateGenerator {
             CandidateSpot spot = toSpot(feature, located.get(), window, effective, techniques, windowSpecific);
             spots.add(spot);
         }
-        List<CandidateSpot> deduped = deduper.dedupe(
-                spots,
-                limits.getMinSpacingM(),
-                limits.getMaxPerFeatureType(),
-                limits.getMaxTotal()
-        );
-        int dropped = spots.size() - deduped.size();
-        if (dropped > 0) {
-            rejections.merge(RejectionReason.DUPLICATE, dropped, Integer::sum);
+        return new WindowPass(spots, rejections);
+    }
+
+    private List<CandidateSpot> collapseToPhysicalIdentity(List<CandidateSpot> selected) {
+        java.util.Map<java.util.UUID, CandidateSpot> byId = new java.util.LinkedHashMap<>();
+        int merged = 0;
+        for (CandidateSpot spot : selected) {
+            java.util.UUID id = spot.getFishingTargetId() != null ? spot.getFishingTargetId() : spot.getFeatureId();
+            if (id == null) {
+                byId.put(java.util.UUID.randomUUID(), stripWindowStamp(spot));
+                continue;
+            }
+            java.util.UUID existingId = id;
+            CandidateSpot existing = byId.get(existingId);
+            if (existing == null) {
+                byId.put(existingId, stripWindowStamp(spot));
+                continue;
+            }
+            merged++;
         }
-        return new WindowPass(deduped, rejections);
+        GenerateProfiler.current().compression().add(
+                com.aifishing.planning.candidate.CandidateCompressionReason.TIME_VARIANT_MERGED, merged);
+        return new ArrayList<>(byId.values());
+    }
+
+    private static CandidateSpot stripWindowStamp(CandidateSpot source) {
+        CandidateSpot physical = source.copy();
+        physical.setWindowFrom(null);
+        physical.setWindowTo(null);
+        physical.setWindowSpecific(false);
+        return physical;
     }
 
     private CandidateSpot toSpot(

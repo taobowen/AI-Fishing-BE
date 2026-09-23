@@ -10,7 +10,8 @@ public class CorsProperties {
 
     private List<String> allowedOriginPatterns = new ArrayList<>(List.of(
             "http://localhost:*",
-            "http://127.0.0.1:*"
+            "http://127.0.0.1:*",
+            "https://anglerpilot.taobowen.com"
     ));
 
     public List<String> getAllowedOriginPatterns() {
@@ -19,7 +20,7 @@ public class CorsProperties {
 
     public void setAllowedOriginPatterns(List<String> allowedOriginPatterns) {
         this.allowedOriginPatterns = allowedOriginPatterns == null || allowedOriginPatterns.isEmpty()
-                ? List.of("http://localhost:*", "http://127.0.0.1:*")
+                ? List.of("http://localhost:*", "http://127.0.0.1:*", "https://anglerpilot.taobowen.com")
                 : List.copyOf(allowedOriginPatterns);
     }
 }

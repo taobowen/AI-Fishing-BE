@@ -29,23 +29,28 @@ public class LakeService {
     private final BathymetryContourRepository contourRepository;
     private final GeoMapper geoMapper;
     private final StructurePipelineReadinessService readinessService;
+    private final LakeCardImageResolver cardImageResolver;
 
     public LakeService(
             LakeRepository lakeRepository,
             BathymetryContourRepository contourRepository,
             GeoMapper geoMapper,
-            StructurePipelineReadinessService readinessService
+            StructurePipelineReadinessService readinessService,
+            LakeCardImageResolver cardImageResolver
     ) {
         this.lakeRepository = lakeRepository;
         this.contourRepository = contourRepository;
         this.geoMapper = geoMapper;
         this.readinessService = readinessService;
+        this.cardImageResolver = cardImageResolver;
     }
 
     @Transactional(readOnly = true)
     public List<LakeSummaryResponse> search(String query) {
-        return lakeRepository.searchByName(query).stream()
-                .map(this::toSummary)
+        List<Lake> lakes = lakeRepository.searchByName(query);
+        var images = cardImageResolver.urlsFor(lakes);
+        return lakes.stream()
+                .map(lake -> toSummary(lake, images.get(lake.getId())))
                 .toList();
     }
 
@@ -90,7 +95,7 @@ public class LakeService {
                 .toList();
     }
 
-    private LakeSummaryResponse toSummary(Lake lake) {
+    private LakeSummaryResponse toSummary(Lake lake, String cardImageUrl) {
         return new LakeSummaryResponse(
                 lake.getId(),
                 lake.getName(),
@@ -101,6 +106,7 @@ public class LakeService {
                 lake.getMeanDepthM(),
                 lake.getMaxDepthM(),
                 lake.getTimeZoneId(),
+                cardImageUrl,
                 lake.getCreatedAt(),
                 lake.getUpdatedAt()
         );
@@ -119,6 +125,7 @@ public class LakeService {
                 lake.getMeanDepthM(),
                 lake.getMaxDepthM(),
                 lake.getTimeZoneId(),
+                cardImageResolver.urlFor(lake),
                 lake.getCreatedAt(),
                 lake.getUpdatedAt()
         );

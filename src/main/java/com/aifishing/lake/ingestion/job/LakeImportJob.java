@@ -18,6 +18,8 @@ import com.aifishing.lake.ingestion.service.IdentityResolutionException;
 import com.aifishing.lake.ingestion.service.LakeIdentityResolver;
 import com.aifishing.lake.ingestion.service.RawPagePersistenceService;
 import com.aifishing.lake.ingestion.source.OntarioDatasetSource;
+import com.aifishing.lake.ops.LakeOpsFailureCode;
+import com.aifishing.lake.ops.LakeOpsJobException;
 import com.aifishing.lake.repo.LakeRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -26,6 +28,7 @@ import org.springframework.stereotype.Component;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.EnumMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -90,14 +93,17 @@ public class LakeImportJob implements ImportJobRunner {
                 lake = identityResolver.resolve(lake);
             } catch (IdentityResolutionException | IllegalArgumentException ex) {
                 log.warn("Identity resolution failed for lake {}: {}", lakeId, ex.getMessage());
-                return new LakeImportSummaryResponse(
-                        lake.getId(),
-                        lake.getName(),
-                        false,
-                        ex.getMessage(),
-                        lake.getOgfId(),
-                        lake.getOfficialName(),
-                        List.of()
+                Map<String, Object> result = new LinkedHashMap<>();
+                result.put("lakeId", lake.getId().toString());
+                result.put("lakeName", lake.getName());
+                result.put("identityResolved", false);
+                result.put("identityError", ex.getMessage());
+                result.put("ogfId", lake.getOgfId());
+                result.put("officialName", lake.getOfficialName());
+                throw new LakeOpsJobException(
+                        LakeOpsFailureCode.IDENTITY_RESOLUTION_FAILED,
+                        ex.getMessage() == null ? "identity resolution failed" : ex.getMessage(),
+                        result
                 );
             }
         }

@@ -1,0 +1,18 @@
+{
+  "caseId": "policy/no-bite-tactical-rubric",
+  "kind": "AGENT_POLICY_EVAL",
+  "replayMode": "FROZEN_REPLAY",
+  "recomputedComponents": [],
+  "allowedActions": ["MOVE", "STAY", "CHANGE_LURE", "CHANGE_DEPTH", "CHANGE_RETRIEVE"],
+  "forbiddenActions": ["RETURN"],
+  "invariants": ["NO_RETURN_WHEN_SAFETY_OK"],
+  "rubric": [
+    "MUST_NOT_RETURN_WHEN_SAFETY_OK",
+    "NO_EXACT_PRIMARY_ACTION",
+    "ACTION_IN_ALLOWED"
+  ],
+  "recordedPrimaryAction": "STAY",
+  "recordedOutcomeKind": "NO_BITE",
+  "snapshotRef": "policy-no-bite",
+  "scenarioId": "policy-no-bite-tactical"
+}

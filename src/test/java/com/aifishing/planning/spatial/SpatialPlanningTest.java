@@ -51,6 +51,35 @@ class SpatialPlanningTest {
     }
 
     @Test
+    void mixedGeometryCollectionDoesNotFailBuffer() {
+        Polygon outer = ProcessingFixtures.polygonSquare(PlanningFixtures.HEAD_LNG, PlanningFixtures.HEAD_LAT, 400);
+        LineString leftover = FACTORY.createLineString(new Coordinate[]{
+                new Coordinate(PlanningFixtures.HEAD_LNG, PlanningFixtures.HEAD_LAT),
+                new Coordinate(PlanningFixtures.HEAD_LNG + 0.001, PlanningFixtures.HEAD_LAT)
+        });
+        var collection = FACTORY.createGeometryCollection(new org.locationtech.jts.geom.Geometry[]{outer, leftover});
+        var cleaned = GeometrySanitizer.validateFixAndNormalize(collection, 50);
+        assertThat(cleaned).isNotNull();
+        assertThat(cleaned.getGeometryType()).isNotEqualTo("GeometryCollection");
+        assertThat(cleaned.isValid()).isTrue();
+    }
+
+    @Test
+    void planningGeometryFlattensMixedWaterBeforePreparedOps() {
+        Polygon water = ProcessingFixtures.polygonSquare(PlanningFixtures.HEAD_LNG, PlanningFixtures.HEAD_LAT, 400);
+        LineString leftover = FACTORY.createLineString(new Coordinate[]{
+                new Coordinate(PlanningFixtures.HEAD_LNG, PlanningFixtures.HEAD_LAT),
+                new Coordinate(PlanningFixtures.HEAD_LNG + 0.001, PlanningFixtures.HEAD_LAT)
+        });
+        var collection = FACTORY.createGeometryCollection(new org.locationtech.jts.geom.Geometry[]{water, leftover});
+        LakePlanningGeometry lake = new LakePlanningGeometry(collection, List.of());
+        assertThat(lake.hasWater()).isTrue();
+        assertThat(lake.water().getGeometryType()).isNotEqualTo("GeometryCollection");
+        Point inside = FACTORY.createPoint(new Coordinate(PlanningFixtures.HEAD_LNG, PlanningFixtures.HEAD_LAT));
+        assertThat(lake.inWater(inside)).isTrue();
+    }
+
+    @Test
     void waterPathDoesNotCrossIsland() {
         Polygon water = ProcessingFixtures.polygonSquare(PlanningFixtures.HEAD_LNG, PlanningFixtures.HEAD_LAT, 800);
         Polygon island = ProcessingFixtures.polygonSquare(PlanningFixtures.HEAD_LNG, PlanningFixtures.HEAD_LAT, 120);
@@ -102,7 +131,8 @@ class SpatialPlanningTest {
         assertThat(enriched.size()).isGreaterThan(1);
         assertThat(enriched).allMatch(item -> item.getTargetKind() == TargetKind.PATH);
         assertThat(enriched.get(0).getFishingTargetId()).isNotEqualTo(enriched.get(1).getFishingTargetId());
-        assertThat(enriched.get(0).coverageIds()).doesNotContainAnyElementsOf(enriched.get(1).coverageIds());
+        assertThat(enriched.get(0).coverageIds()).contains(enriched.get(0).getFishingTargetId());
+        assertThat(enriched.get(1).coverageIds()).contains(enriched.get(1).getFishingTargetId());
         assertThat(enriched.get(0).getFeatureId()).isEqualTo(enriched.get(1).getFeatureId());
     }
 
@@ -117,9 +147,39 @@ class SpatialPlanningTest {
         spot.setSourceGeometry(hump);
         spot.setLocation(hump.getInteriorPoint());
         var enriched = builder.enrich(List.of(spot), lake, new PlanningProperties());
-        assertThat(enriched).isNotEmpty();
-        assertThat(enriched).noneMatch(item -> item.getTargetKind() == TargetKind.AREA);
-        assertThat(enriched).allMatch(item -> item.getTargetKind() == TargetKind.POINT || item.getTargetKind() == TargetKind.PATH);
+        assertThat(enriched).hasSize(1);
+        assertThat(enriched.get(0).getTargetKind()).isEqualTo(TargetKind.POINT);
+    }
+
+    @Test
+    void arealBasinIsOneRepresentativePoint() {
+        FishingTargetBuilder builder = new FishingTargetBuilder(new CandidateLocationService(), new LocalMetricCrs());
+        Polygon water = ProcessingFixtures.polygonSquare(PlanningFixtures.HEAD_LNG, PlanningFixtures.HEAD_LAT, 600);
+        LakePlanningGeometry lake = new LakePlanningGeometry(water, List.of());
+        Polygon basin = ProcessingFixtures.polygonSquare(PlanningFixtures.HEAD_LNG, PlanningFixtures.HEAD_LAT, 120);
+        CandidateSpot spot = new CandidateSpot();
+        spot.setType(FeatureType.BASIN);
+        spot.setSourceGeometry(basin);
+        spot.setLocation(basin.getInteriorPoint());
+        var enriched = builder.enrich(List.of(spot), lake, new PlanningProperties());
+        assertThat(enriched).hasSize(1);
+        assertThat(enriched.get(0).getTargetKind()).isEqualTo(TargetKind.POINT);
+    }
+
+    @Test
+    void closedFlatStaysOnePoint() {
+        FishingTargetBuilder builder = new FishingTargetBuilder(new CandidateLocationService(), new LocalMetricCrs());
+        Polygon water = ProcessingFixtures.polygonSquare(PlanningFixtures.HEAD_LNG, PlanningFixtures.HEAD_LAT, 800);
+        LakePlanningGeometry lake = new LakePlanningGeometry(water, List.of());
+        Polygon flat = ProcessingFixtures.polygonSquare(PlanningFixtures.HEAD_LNG, PlanningFixtures.HEAD_LAT, 200);
+        CandidateSpot spot = new CandidateSpot();
+        spot.setType(FeatureType.FLAT);
+        spot.setSourceGeometry(flat);
+        spot.setLocation(flat.getInteriorPoint());
+        var enriched = builder.enrich(List.of(spot), lake, new PlanningProperties());
+        assertThat(enriched).hasSize(1);
+        assertThat(enriched.get(0).getTargetKind()).isEqualTo(TargetKind.POINT);
+        assertThat(enriched.get(0).getSourceGeometry()).isEqualTo(flat);
     }
 
     @Test
@@ -198,9 +258,56 @@ class SpatialPlanningTest {
         });
         CandidateSpot spot = edgeSpot(ring);
         var enriched = builder.enrich(List.of(spot), lake, new PlanningProperties());
-        assertThat(enriched).isNotEmpty();
-        assertThat(enriched.get(0).getTargetKind()).isEqualTo(TargetKind.PATH);
-        assertThat(enriched.get(0).isClosedLoop()).isTrue();
+        assertThat(enriched.size()).isGreaterThanOrEqualTo(2);
+        assertThat(enriched).allMatch(item -> item.getTargetKind() == TargetKind.PATH);
+        assertThat(enriched).noneMatch(CandidateSpot::isClosedLoop);
+    }
+
+    @Test
+    void coincidentDifferentTypesBecomeOneOpportunity() {
+        FishingTargetBuilder builder = new FishingTargetBuilder(new CandidateLocationService(), new LocalMetricCrs());
+        Polygon water = ProcessingFixtures.polygonSquare(PlanningFixtures.HEAD_LNG, PlanningFixtures.HEAD_LAT, 600);
+        LakePlanningGeometry lake = new LakePlanningGeometry(water, List.of());
+        UUID humpId = UUID.fromString("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaa1");
+        UUID basinId = UUID.fromString("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbb2");
+        CandidateSpot hump = depthPoint(FeatureType.HUMP, humpId, 0, 0, 4.6);
+        CandidateSpot basin = depthPoint(FeatureType.BASIN, basinId, 3, 0, 4.8);
+        var enriched = builder.enrich(List.of(hump, basin), lake, new PlanningProperties());
+        assertThat(enriched).hasSize(1);
+        assertThat(enriched.get(0).getType()).isEqualTo(FeatureType.HUMP);
+        assertThat(enriched.get(0).getEvidenceTypes()).contains(FeatureType.HUMP, FeatureType.BASIN);
+        assertThat(enriched.get(0).getSourceFeatureIds()).contains(humpId, basinId);
+    }
+
+    @Test
+    void oppositeShoresAcrossAnIslandStaySeparate() {
+        FishingTargetBuilder builder = new FishingTargetBuilder(new CandidateLocationService(), new LocalMetricCrs());
+        Polygon water = ProcessingFixtures.polygonSquare(PlanningFixtures.HEAD_LNG, PlanningFixtures.HEAD_LAT, 400);
+        Polygon island = ProcessingFixtures.polygonSquare(PlanningFixtures.HEAD_LNG, PlanningFixtures.HEAD_LAT, 0.4);
+        LakePlanningGeometry lake = new LakePlanningGeometry(water, List.of(island));
+        CandidateSpot west = depthPoint(FeatureType.HUMP, UUID.randomUUID(), -2, 0, 4.6);
+        CandidateSpot east = depthPoint(FeatureType.DROP_OFF, UUID.randomUUID(), 2, 0, 4.6);
+        var enriched = builder.enrich(List.of(west, east), lake, new PlanningProperties());
+        assertThat(enriched).hasSize(2);
+    }
+
+    @Test
+    void targetsOnOppositeSidesOfAnIslandDoNotJoinAZone() {
+        FishingTargetBuilder targets = new FishingTargetBuilder(new CandidateLocationService(), new LocalMetricCrs());
+        FishingZoneBuilder zones = zoneBuilder();
+        Polygon water = ProcessingFixtures.polygonSquare(PlanningFixtures.HEAD_LNG, PlanningFixtures.HEAD_LAT, 500);
+        Polygon island = ProcessingFixtures.polygonSquare(PlanningFixtures.HEAD_LNG, PlanningFixtures.HEAD_LAT, 30);
+        LakePlanningGeometry lake = new LakePlanningGeometry(water, List.of(island));
+        PlanningProperties properties = new PlanningProperties();
+        properties.getSpatial().setClusterMinMembers(2);
+        CandidateSpot west = depthPoint(FeatureType.ISLAND_EDGE, UUID.randomUUID(), -50, 0, 3.0);
+        CandidateSpot east = depthPoint(FeatureType.ISLAND_EDGE, UUID.randomUUID(), 50, 0, 6.0);
+        var clustered = zones.cluster(targets.enrich(List.of(west, east), lake, properties), lake, properties);
+        assertThat(clustered).isEmpty();
+        CandidateSpot near = depthPoint(FeatureType.HUMP, UUID.randomUUID(), -80, 0, 3.0);
+        CandidateSpot alsoNear = depthPoint(FeatureType.HUMP, UUID.randomUUID(), -40, 20, 5.0);
+        var sameSide = zones.cluster(targets.enrich(List.of(near, alsoNear), lake, properties), lake, properties);
+        assertThat(sameSide).isNotEmpty();
     }
 
     @Test
@@ -591,6 +698,17 @@ class SpatialPlanningTest {
                         PlanningFixtures.HEAD_LAT + metersToLat(northM + 40))
         });
         return edgeSpot(shore);
+    }
+
+    private static CandidateSpot depthPoint(FeatureType type, UUID featureId, double eastM, double northM, double depthM) {
+        CandidateSpot spot = pointSpot(eastM, northM);
+        spot.setFeatureId(featureId);
+        spot.setType(type);
+        spot.setRepresentativeDepthM(depthM);
+        spot.setMinDepthM(depthM);
+        spot.setMaxDepthM(depthM);
+        spot.setSourceGeometry(spot.getLocation());
+        return spot;
     }
 
     private static CandidateSpot pointSpot(double eastM, double northM) {

@@ -70,6 +70,55 @@ class WaypointProgressMachineArrivalTest {
         assertThat(next.getStatus()).isEqualTo(WaypointProgressStatus.NAVIGATING);
     }
 
+    @Test
+    void completingFirstAbacStopDoesNotCompleteLaterZoneA() {
+        WaypointProgressMachine machine = new WaypointProgressMachine(new SessionProperties(), null);
+        SessionWaypointProgress firstA = navigating(UUID.fromString("aaaaaaaa-aaaa-aaaa-aaaa-000000000001"));
+        SessionWaypointProgress pointB = upcoming(UUID.fromString("bbbbbbbb-bbbb-bbbb-bbbb-000000000001"), 2);
+        SessionWaypointProgress secondA = upcoming(UUID.fromString("aaaaaaaa-aaaa-aaaa-aaaa-000000000002"), 3);
+        SessionWaypointProgress pointC = upcoming(UUID.fromString("cccccccc-cccc-cccc-cccc-000000000001"), 4);
+        machine.manualComplete(firstA, Instant.parse("2026-09-08T17:00:00Z"), List.of(firstA, pointB, secondA, pointC));
+        assertThat(firstA.getStatus()).isEqualTo(WaypointProgressStatus.COMPLETED);
+        assertThat(pointB.getStatus()).isEqualTo(WaypointProgressStatus.NAVIGATING);
+        assertThat(secondA.getStatus()).isEqualTo(WaypointProgressStatus.UPCOMING);
+        assertThat(pointC.getStatus()).isEqualTo(WaypointProgressStatus.UPCOMING);
+    }
+
+    @Test
+    void arrivingAtGuidanceTargetMarksThatWaypointWithoutSkippingPrior() {
+        WaypointProgressMachine machine = new WaypointProgressMachine(new SessionProperties(), null);
+        UUID spot2 = UUID.fromString("aaaaaaaa-aaaa-aaaa-aaaa-000000000002");
+        UUID spot3 = UUID.fromString("aaaaaaaa-aaaa-aaaa-aaaa-000000000003");
+        TripWaypoint planned2 = planned(spot2, 44.75, -78.92);
+        TripWaypoint planned3 = planned(spot3, 44.76, -78.92);
+        SessionWaypointProgress row2 = navigating(spot2);
+        row2.setSequence(2);
+        SessionWaypointProgress row3 = upcoming(spot3, 3);
+        Instant t0 = Instant.parse("2026-09-08T17:00:00Z");
+
+        machine.applyAcceptedHistory(
+                List.of(row2, row3),
+                Map.of(spot2, planned2, spot3, planned3),
+                samples(t0, 44.76, -78.92),
+                spot3
+        );
+
+        assertThat(row3.getStatus()).isEqualTo(WaypointProgressStatus.FISHING);
+        assertThat(row3.getArrivedAt()).isNotNull();
+        assertThat(row2.getStatus()).isEqualTo(WaypointProgressStatus.NAVIGATING);
+        assertThat(row2.getArrivedAt()).isNull();
+        assertThat(row2.getSkippedAt()).isNull();
+        assertThat(row2.getCompletedAt()).isNull();
+    }
+
+    private static TripWaypoint planned(UUID id, double lat, double lng) {
+        TripWaypoint waypoint = new TripWaypoint();
+        waypoint.setId(id);
+        waypoint.setLocation(point(lat, lng));
+        waypoint.setEntryPoint(point(lat, lng));
+        return waypoint;
+    }
+
     private static SessionWaypointProgress navigating(UUID waypointId) {
         SessionWaypointProgress row = new SessionWaypointProgress();
         row.setTripWaypointId(waypointId);

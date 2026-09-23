@@ -58,6 +58,7 @@ class TransitLegMaterializerTest {
                 0,
                 40,
                 22.5,
+                0,
                 0
         );
 

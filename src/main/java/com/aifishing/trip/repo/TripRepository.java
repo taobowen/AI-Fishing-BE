@@ -30,4 +30,18 @@ public interface TripRepository extends JpaRepository<Trip, UUID> {
             @Param("fromDate") LocalDate fromDate,
             @Param("toDate") LocalDate toDate
     );
+
+    @Query("""
+            SELECT t FROM Trip t
+            WHERE t.userId = :userId
+              AND t.status <> com.aifishing.common.enums.TripStatus.CANCELLED
+              AND t.plannedDate >= :fromDate
+              AND t.plannedDate <= :toDate
+            ORDER BY t.plannedDate DESC, t.fishingStartTime DESC
+            """)
+    List<Trip> findOwnedBetween(
+            @Param("userId") UUID userId,
+            @Param("fromDate") LocalDate fromDate,
+            @Param("toDate") LocalDate toDate
+    );
 }

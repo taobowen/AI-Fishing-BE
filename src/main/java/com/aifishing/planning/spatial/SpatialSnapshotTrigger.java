@@ -27,9 +27,10 @@ public class SpatialSnapshotTrigger {
             return;
         }
         try {
-            job.submitIfReady(lakeId, pipeline, analysisVersion);
+            job.buildIfReady(lakeId, pipeline, analysisVersion);
         } catch (RuntimeException ex) {
             log.warn("Spatial snapshot build failed for lake {} pipeline {}: {}", lakeId, pipeline, ex.getMessage());
+            throw ex;
         }
     }
 }

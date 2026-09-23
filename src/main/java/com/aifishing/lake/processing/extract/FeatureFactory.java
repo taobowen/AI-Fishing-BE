@@ -1,6 +1,7 @@
 package com.aifishing.lake.processing.extract;
 
 import com.aifishing.common.geo.GeoMapper;
+import com.aifishing.common.geo.PolygonalGeometries;
 import com.aifishing.common.geo.WaterDepth;
 import com.aifishing.lake.processing.confidence.FeatureConfidenceService;
 import com.aifishing.lake.processing.domain.LakeFeature;
@@ -39,7 +40,9 @@ public class FeatureFactory {
             FeatureEvidence evidence,
             Map<String, Object> extraMetadata
     ) {
-        Geometry clipped = clip(geometry, context.lakeBoundary());
+        Geometry clipped = type == FeatureType.ISLAND_EDGE
+                ? islandGeometry(geometry, context.lakeBoundary())
+                : clip(geometry, context.lakeBoundary());
         if (clipped == null) {
             return null;
         }
@@ -80,6 +83,35 @@ public class FeatureFactory {
         return feature;
     }
 
+    /**
+     * An island is land. Clipping it to the water polygon would keep only an 8 m rim of a boundary hole.
+     * Keep the island when it touches the lake.
+     */
+    private Geometry islandGeometry(Geometry geometry, Geometry lakeBoundary) {
+        if (geometry == null || geometry.isEmpty()) {
+            return null;
+        }
+        Geometry working = geometry.copy();
+        working.setSRID(GeoMapper.SRID);
+        if (lakeBoundary == null || lakeBoundary.isEmpty()) {
+            return working;
+        }
+        Geometry boundary = PolygonalGeometries.of(lakeBoundary);
+        if (boundary == null || boundary.isEmpty()) {
+            return working;
+        }
+        double lat = GeoMetrics.referenceLat(boundary);
+        Geometry buffered = boundary.buffer(GeoMetrics.bufferDegrees(8, lat));
+        try {
+            if (working.intersects(buffered) || working.touches(boundary)) {
+                return working;
+            }
+        } catch (RuntimeException ex) {
+            return null;
+        }
+        return null;
+    }
+
     private Geometry clip(Geometry geometry, Geometry lakeBoundary) {
         if (geometry == null || geometry.isEmpty()) {
             return null;
@@ -89,8 +121,12 @@ public class FeatureFactory {
         if (lakeBoundary == null || lakeBoundary.isEmpty()) {
             return working;
         }
-        double lat = GeoMetrics.referenceLat(lakeBoundary);
-        Geometry buffered = lakeBoundary.buffer(GeoMetrics.bufferDegrees(8, lat));
+        Geometry boundary = PolygonalGeometries.of(lakeBoundary);
+        if (boundary == null || boundary.isEmpty()) {
+            return working;
+        }
+        double lat = GeoMetrics.referenceLat(boundary);
+        Geometry buffered = boundary.buffer(GeoMetrics.bufferDegrees(8, lat));
         if (!working.intersects(buffered)) {
             return null;
         }

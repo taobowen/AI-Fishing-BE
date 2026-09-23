@@ -1,5 +1,6 @@
 package com.aifishing.strategy.weather;
 
+import com.aifishing.planning.environment.TripClock;
 import org.springframework.stereotype.Component;
 
 import java.time.LocalDate;
@@ -22,7 +23,35 @@ public class WeatherService {
             LocalTime fishingStart,
             LocalTime fishingEnd
     ) {
-        WeatherContext context = weatherProvider.forecast(latitude, longitude, timeZoneId, date, fishingStart, fishingEnd);
+        return forTrip(
+                latitude,
+                longitude,
+                timeZoneId,
+                date,
+                TripClock.inferEndDate(date, fishingStart, fishingEnd),
+                fishingStart,
+                fishingEnd
+        );
+    }
+
+    public WeatherContext forTrip(
+            double latitude,
+            double longitude,
+            String timeZoneId,
+            LocalDate startDate,
+            LocalDate endDate,
+            LocalTime fishingStart,
+            LocalTime fishingEnd
+    ) {
+        WeatherContext context = weatherProvider.forecast(
+                latitude,
+                longitude,
+                timeZoneId,
+                startDate,
+                endDate,
+                fishingStart,
+                fishingEnd
+        );
         return new WeatherContext(
                 context.availability(),
                 context.retrievedAt(),

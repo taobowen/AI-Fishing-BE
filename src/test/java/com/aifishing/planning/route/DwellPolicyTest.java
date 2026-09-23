@@ -37,6 +37,34 @@ class DwellPolicyTest {
     }
 
     @Test
+    void pointDwellTableIsFifteenToFortyFive() {
+        PlanningProperties.Schedule schedule = new PlanningProperties().getSchedule();
+        var point = RoutePlannerHarness.candidate(
+                UUID.randomUUID(), -78.92, 44.75, 0.7, LightPreference.NEUTRAL, FeatureType.POINT);
+        point.spot().setTargetKind(com.aifishing.planning.spatial.TargetKind.POINT);
+        assertThat(DwellPolicy.options(point, 480, schedule)).containsExactly(15, 20, 30, 45);
+    }
+
+    @Test
+    void pathDwellTableIsThirtyToNinety() {
+        PlanningProperties.Schedule schedule = new PlanningProperties().getSchedule();
+        var path = RoutePlannerHarness.candidate(
+                UUID.randomUUID(), -78.92, 44.75, 0.7, LightPreference.NEUTRAL, FeatureType.ISLAND_EDGE);
+        path.spot().setTargetKind(com.aifishing.planning.spatial.TargetKind.PATH);
+        assertThat(DwellPolicy.options(path, 480, schedule)).containsExactly(30, 45, 60, 90);
+    }
+
+    @Test
+    void zonePackagesAreNotClippedByMaxSpotMinutes() {
+        PlanningProperties.Schedule schedule = new PlanningProperties().getSchedule();
+        var zone = RoutePlannerHarness.candidate(
+                UUID.randomUUID(), -78.92, 44.75, 0.7, LightPreference.NEUTRAL, FeatureType.FLAT);
+        zone.spot().setTargetKind(com.aifishing.planning.spatial.TargetKind.ZONE);
+        assertThat(DwellPolicy.options(zone, 480, schedule)).contains(45, 90, 135, 180);
+        assertThat(DwellPolicy.options(zone, 480, schedule)).allMatch(minutes -> minutes <= schedule.getMaxZoneVisitMinutes());
+    }
+
+    @Test
     void shortRemainingTimeClampsDwellInsideTheWindow() {
         PlanningProperties.Schedule schedule = new PlanningProperties().getSchedule();
         var spot = RoutePlannerHarness.candidate(

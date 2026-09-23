@@ -39,7 +39,9 @@ public record WeatherContext(
             Double cloudCoverPercent,
             Double pressureHpa,
             Double shortwaveRadiation,
-            Double directRadiation
+            Double directRadiation,
+            Integer weatherCode,
+            LocalDate date
     ) {
         public HourlyWeather(
                 LocalTime time,
@@ -50,7 +52,21 @@ public record WeatherContext(
                 Double cloudCoverPercent,
                 Double pressureHpa
         ) {
-            this(time, airTemperatureC, windSpeedKmh, windDirectionDeg, precipitationMm, cloudCoverPercent, pressureHpa, null, null);
+            this(time, airTemperatureC, windSpeedKmh, windDirectionDeg, precipitationMm, cloudCoverPercent, pressureHpa, null, null, null, null);
+        }
+
+        public HourlyWeather(
+                LocalTime time,
+                Double airTemperatureC,
+                Double windSpeedKmh,
+                Double windDirectionDeg,
+                Double precipitationMm,
+                Double cloudCoverPercent,
+                Double pressureHpa,
+                Double shortwaveRadiation,
+                Double directRadiation
+        ) {
+            this(time, airTemperatureC, windSpeedKmh, windDirectionDeg, precipitationMm, cloudCoverPercent, pressureHpa, shortwaveRadiation, directRadiation, null, null);
         }
     }
 }

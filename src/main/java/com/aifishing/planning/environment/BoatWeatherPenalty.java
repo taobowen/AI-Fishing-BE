@@ -29,6 +29,20 @@ public class BoatWeatherPenalty {
     }
 
     /**
+     * Trip-level gate. Wind at or above the boat safety hard-reject threshold blocks planning
+     * before search. Wind inside that threshold stays a fishing-utility penalty.
+     */
+    public boolean tripWindowUnsafe(PlanningContext context, TimeIndexedWeather weather, Instant start, Instant end) {
+        if (context == null || weather == null || start == null || end == null || end.isBefore(start)) {
+            return false;
+        }
+        if (!weather.forecastAvailable()) {
+            return false;
+        }
+        return hardReject(weather.intervalMaximumWind(start, end), context);
+    }
+
+    /**
      * Soft penalty in [0, 1] subtracted from utility. Hard reject is handled separately.
      */
     public double penalty(WeatherSample sample, PlanningContext context) {

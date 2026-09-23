@@ -11,6 +11,7 @@ import java.util.UUID;
 public record TripContext(
         UUID tripId,
         LocalDate plannedDate,
+        LocalDate plannedEndDate,
         LocalTime fishingStartTime,
         LocalTime fishingEndTime,
         String timeZoneId,

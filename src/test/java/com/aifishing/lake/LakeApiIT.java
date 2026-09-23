@@ -31,11 +31,13 @@ class LakeApiIT extends AbstractIntegrationTest {
                 .andExpect(jsonPath("$[0].name", is("Head Lake")))
                 .andExpect(jsonPath("$[0].timeZoneId", is("America/Toronto")))
                 .andExpect(jsonPath("$[0].centroid.lat", is(44.75)))
-                .andExpect(jsonPath("$[0].centroid.lng", is(-78.92)));
+                .andExpect(jsonPath("$[0].centroid.lng", is(-78.92)))
+                .andExpect(jsonPath("$[0].cardImageUrl", is("http://localhost:8080/lakes/head.jpg")));
 
         mockMvc.perform(asDev(get("/api/v1/lakes/" + DevSeedIds.LAKE_ID)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.province", is("Ontario")));
+                .andExpect(jsonPath("$.province", is("Ontario")))
+                .andExpect(jsonPath("$.cardImageUrl", is("http://localhost:8080/lakes/head.jpg")));
     }
 
     @Test

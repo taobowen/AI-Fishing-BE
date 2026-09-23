@@ -54,6 +54,8 @@ public class SpatialSnapshotJob {
 
     private static final Logger log = LoggerFactory.getLogger(SpatialSnapshotJob.class);
     private static final int TILE_JDBC_BATCH = 64;
+    /** Each pending water path is dirty-checked by the per-pair dedupe lookup, so keep the session small. */
+    private static final int WATER_PATH_FLUSH_BATCH = 500;
 
     private final PlanningProperties properties;
     private final LakeRepository lakeRepository;
@@ -378,11 +380,18 @@ public class SpatialSnapshotJob {
         int[] pathCount = {0};
         profiler.start(GenerateProfiler.WATER_PATH_BUILD);
         transactionTemplate.execute(status -> {
-            SpatialPlanningSnapshot snap = snapshotRepository.findById(snapshotId).orElseThrow();
+            int pending = 0;
             for (CandidateSpot zone : zones) {
-                pathCount[0] += precomputeUsefulPairs(snapshotId, zone, raster, spatial);
+                int built = precomputeUsefulPairs(snapshotId, zone, raster, spatial);
+                pathCount[0] += built;
+                pending += built;
+                if (pending >= WATER_PATH_FLUSH_BATCH) {
+                    flushPersistence();
+                    pending = 0;
+                }
             }
             flushPersistence();
+            SpatialPlanningSnapshot snap = snapshotRepository.findById(snapshotId).orElseThrow();
             Map<String, Object> counts = baseCounts(features.size(), atomics.size(), zones.size(), ledger, clusterStats, raster);
             counts.put("precomputedPairCount", pathCount[0]);
             counts.put("waterPathsBuilt", pathCount[0]);
@@ -534,7 +543,11 @@ public class SpatialSnapshotJob {
         if (spot.getFishingCorridorWidthM() != null) {
             row.setFishingCorridorWidthM(BigDecimal.valueOf(spot.getFishingCorridorWidthM()));
         }
-        row.setSourceFeatureIds(spot.getFeatureId() == null ? List.of() : List.of(spot.getFeatureId()));
+        List<UUID> sourceIds = spot.getSourceFeatureIds();
+        if (sourceIds == null || sourceIds.isEmpty()) {
+            sourceIds = spot.getFeatureId() == null ? List.of() : List.of(spot.getFeatureId());
+        }
+        row.setSourceFeatureIds(sourceIds);
         row.setSegmentIndex(0);
         row.setClosedLoop(spot.isClosedLoop());
         row.setPathTopology(spot.getPathTopology());
@@ -557,10 +570,22 @@ public class SpatialSnapshotJob {
         if (spot.getFeatureConfidence() != null) {
             row.setConfidence(BigDecimal.valueOf(spot.getFeatureConfidence()));
         }
-        row.setStaticMetadata(Map.of(
-                "splitReason", spot.getSplitReason() == null ? "" : spot.getSplitReason(),
-                "closedLoop", spot.isClosedLoop()
-        ));
+        Map<String, Object> metadata = new LinkedHashMap<>();
+        metadata.put("splitReason", spot.getSplitReason() == null ? "" : spot.getSplitReason());
+        metadata.put("closedLoop", spot.isClosedLoop());
+        List<String> evidenceTypes = new ArrayList<>();
+        if (spot.getEvidenceTypes() != null) {
+            for (com.aifishing.lake.processing.dto.FeatureType evidenceType : spot.getEvidenceTypes()) {
+                if (evidenceType != null) {
+                    evidenceTypes.add(evidenceType.name());
+                }
+            }
+        }
+        if (evidenceTypes.isEmpty() && spot.getType() != null) {
+            evidenceTypes.add(spot.getType().name());
+        }
+        metadata.put("evidenceTypes", evidenceTypes);
+        row.setStaticMetadata(metadata);
         if (row.getGeometry() == null || row.getRepresentativePoint() == null) {
             return;
         }

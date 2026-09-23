@@ -1,10 +1,12 @@
 package com.aifishing.lake.ingestion.geo;
 
 import com.aifishing.common.geo.GeoMapper;
+import com.aifishing.common.geo.PolygonalGeometries;
 import com.aifishing.lake.domain.Lake;
 import com.aifishing.lake.ingestion.domain.LakeBoundaryRecord;
 import com.aifishing.lake.ingestion.repo.LakeBoundaryRecordRepository;
 import org.locationtech.jts.geom.Geometry;
+import org.locationtech.jts.operation.union.UnaryUnionOp;
 import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
@@ -35,8 +37,22 @@ public class LakeWaterGeometry {
             }
             Geometry fallback = lake.getBoundary().copy();
             fallback.setSRID(GeoMapper.SRID);
-            return fallback;
+            return polygonalWater(fallback);
         }
+        Geometry union;
+        try {
+            union = parts.size() == 1 ? parts.get(0) : UnaryUnionOp.union(parts);
+        } catch (Exception ex) {
+            union = sequentialUnion(parts);
+        }
+        if (union == null || union.isEmpty()) {
+            return null;
+        }
+        union.setSRID(GeoMapper.SRID);
+        return polygonalWater(union);
+    }
+
+    private static Geometry sequentialUnion(List<Geometry> parts) {
         Geometry union = parts.get(0);
         for (int i = 1; i < parts.size(); i++) {
             try {
@@ -45,7 +61,15 @@ public class LakeWaterGeometry {
                 // keep previous union if a part is topologically invalid
             }
         }
-        union.setSRID(GeoMapper.SRID);
         return union;
+    }
+
+    private static Geometry polygonalWater(Geometry geometry) {
+        Geometry polygonal = PolygonalGeometries.of(geometry);
+        if (polygonal == null || polygonal.isEmpty()) {
+            return null;
+        }
+        polygonal.setSRID(GeoMapper.SRID);
+        return polygonal;
     }
 }

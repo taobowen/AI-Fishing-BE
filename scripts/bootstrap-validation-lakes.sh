@@ -32,6 +32,8 @@ Options:
   --skip-plan       Skip user trip/plan.
   --pipeline=GIS    Process pipeline (default GIS).
   --lake-id=UUID    Limit to one lake (repeatable via LAKE_IDS csv).
+                    A subset writes docs/reports/lake-ops-{ENVIRONMENT}-{runId}.md
+                    and does not overwrite production-data-validation.md.
 
 Auth:
   prod: ADMIN_BEARER and USER_BEARER (USER must not be ADMIN)
@@ -56,6 +58,22 @@ while [[ $# -gt 0 ]]; do
   shift
 done
 
+admin_token() {
+  if [[ -n "${ADMIN_BEARER_FILE:-}" && -s "${ADMIN_BEARER_FILE}" ]]; then
+    cat "${ADMIN_BEARER_FILE}"
+  else
+    printf '%s' "${ADMIN_BEARER:-}"
+  fi
+}
+
+user_token() {
+  if [[ -n "${USER_BEARER_FILE:-}" && -s "${USER_BEARER_FILE}" ]]; then
+    cat "${USER_BEARER_FILE}"
+  else
+    printf '%s' "${USER_BEARER:-}"
+  fi
+}
+
 if [[ -z "$API_BASE" ]]; then
   echo "API_BASE is required" >&2
   exit 2
@@ -65,8 +83,8 @@ if [[ "$ENVIRONMENT" != "local-live" && "$ENVIRONMENT" != "prod" ]]; then
   exit 2
 fi
 if [[ "$ENVIRONMENT" == "prod" ]]; then
-  if [[ -z "${ADMIN_BEARER:-}" || -z "${USER_BEARER:-}" ]]; then
-    echo "prod requires ADMIN_BEARER and USER_BEARER" >&2
+  if [[ -z "$(admin_token)" || -z "$(user_token)" ]]; then
+    echo "prod requires ADMIN_BEARER/ADMIN_BEARER_FILE and USER_BEARER/USER_BEARER_FILE" >&2
     exit 2
   fi
   if [[ -n "${ADMIN_USER_ID:-}" || -n "${USER_USER_ID:-}" ]]; then
@@ -86,7 +104,7 @@ mkdir -p "$REPORT_DIR" "$ARTIFACT_ROOT/$ENVIRONMENT"
 
 admin_curl() {
   if [[ "$ENVIRONMENT" == "prod" ]]; then
-    curl -sS --max-time "$CURL_MAX_TIME" -H "Accept: application/json" -H "Authorization: Bearer ${ADMIN_BEARER}" "$@"
+    curl -sS --max-time "$CURL_MAX_TIME" -H "Accept: application/json" -H "Authorization: Bearer $(admin_token)" "$@"
   else
     curl -sS --max-time "$CURL_MAX_TIME" -H "Accept: application/json" -H "X-User-Id: ${ADMIN_USER_ID}" "$@"
   fi
@@ -94,7 +112,7 @@ admin_curl() {
 
 user_curl() {
   if [[ "$ENVIRONMENT" == "prod" ]]; then
-    curl -sS --max-time "$CURL_MAX_TIME" -H "Accept: application/json" -H "Content-Type: application/json" -H "Authorization: Bearer ${USER_BEARER}" "$@"
+    curl -sS --max-time "$CURL_MAX_TIME" -H "Accept: application/json" -H "Content-Type: application/json" -H "Authorization: Bearer $(user_token)" "$@"
   else
     curl -sS --max-time "$CURL_MAX_TIME" -H "Accept: application/json" -H "Content-Type: application/json" -H "X-User-Id: ${USER_USER_ID}" "$@"
   fi
@@ -130,6 +148,372 @@ http_json() {
   esac
   cat "$tmp"
   rm -f "$tmp" "$hdr"
+}
+
+job_status_from_json() {
+  python3 -c 'import json,sys; print(json.load(sys.stdin)["status"])'
+}
+
+job_failure_code_from_json() {
+  python3 -c 'import json,sys; print(json.load(sys.stdin).get("failureCode") or "")'
+}
+
+# Gate on status + structured fields only. Never parse failureMessage / errorMessage text.
+job_import_contract_ok() {
+  python3 -c '
+import json,sys
+job=json.loads(sys.stdin.read())
+result=job.get("result") or {}
+ok = job.get("status")=="SUCCEEDED" and result.get("identityResolved") is True and result.get("ogfId") not in (None,"")
+raise SystemExit(0 if ok else 1)
+'
+}
+
+job_process_contract_ok() {
+  python3 -c '
+import json,sys
+job=json.loads(sys.stdin.read())
+result=job.get("result") or {}
+if job.get("status")!="SUCCEEDED":
+    raise SystemExit(1)
+if sys.argv[1]=="VISION":
+    raise SystemExit(0 if result.get("processingStatus") in ("READY","PARTIAL") else 1)
+ok = result.get("spatialSnapshotStatus")=="READY" and result.get("spatialSnapshotId") not in (None,"")
+raise SystemExit(0 if ok else 1)
+' "$PIPELINE"
+}
+
+job_id_from_json() {
+  python3 -c 'import json,sys; print(json.load(sys.stdin)["jobId"])'
+}
+
+write_job_result() {
+  local artifact="$1"
+  python3 -c 'import json,sys; job=json.load(sys.stdin); json.dump(job.get("result") or job, open(sys.argv[1],"w"), indent=2); print(sys.argv[1])' "$artifact"
+}
+
+# POST 202 enqueue only. Does not wait for SUCCEEDED.
+enqueue_ops_job() {
+  local path="$1"
+  local attempt body
+  for attempt in 1 2 3 4 5; do
+    body="$(http_json POST "$path" || true)"
+    if [[ -n "$body" ]] && python3 -c 'import json,sys; json.loads(sys.argv[1])["jobId"]' "$body" >/dev/null 2>&1; then
+      job_id_from_json <<<"$body"
+      return 0
+    fi
+    echo "enqueue retry $attempt empty/invalid POST $path" >&2
+    sleep $((attempt * 3))
+  done
+  echo "enqueue failed after retries: POST $path" >&2
+  echo "${body:-<empty>}" >&2
+  return 1
+}
+
+poll_ops_job() {
+  local job_id="$1"
+  local artifact="$2"
+  local kind="${3:-}"
+  local latest status
+  latest="$(http_json GET "/api/v1/admin/lakes/jobs/${job_id}")"
+  status="$(job_status_from_json <<<"$latest")"
+  while [[ "$status" != "SUCCEEDED" && "$status" != "FAILED" ]]; do
+    sleep 5
+    latest="$(http_json GET "/api/v1/admin/lakes/jobs/${job_id}")"
+    status="$(job_status_from_json <<<"$latest")"
+  done
+  if [[ "$status" != "SUCCEEDED" ]]; then
+    echo "lake ops job ${job_id} ${status} failureCode=$(job_failure_code_from_json <<<"$latest")" >&2
+    echo "$latest" >&2
+    return 1
+  fi
+  if [[ "$kind" == "import" ]] && ! job_import_contract_ok <<<"$latest"; then
+    echo "lake ops job ${job_id} SUCCEEDED but identityResolved/ogfId missing" >&2
+    echo "$latest" >&2
+    return 1
+  fi
+  if [[ "$kind" == "process" ]] && ! job_process_contract_ok <<<"$latest"; then
+    echo "lake ops job ${job_id} SUCCEEDED but snapshot/processing contract failed" >&2
+    echo "$latest" >&2
+    return 1
+  fi
+  write_job_result "$artifact" <<<"$latest"
+}
+
+# POST 202 enqueue, poll GET /jobs/{id} (GET also reconciles STOPPED ECS tasks), write result JSON.
+post_ops_job() {
+  local path="$1"
+  local artifact="$2"
+  local kind="${3:-}"
+  local job_id
+  job_id="$(enqueue_ops_job "$path")"
+  poll_ops_job "$job_id" "$artifact" "$kind"
+}
+
+skip_import() {
+  local id="$1"
+  [[ "$SKIP_IMPORT" -eq 1 ]] || [[ "$RESUME" -eq 1 && "$(state_done "$id" import)" == "yes" ]]
+}
+
+skip_process() {
+  local id="$1"
+  [[ "$SKIP_PROCESS" -eq 1 ]] || [[ "$RESUME" -eq 1 && "$(state_done "$id" process)" == "yes" ]]
+}
+
+enqueue_import_if_needed() {
+  local id="$1"
+  if skip_import "$id"; then
+    echo "skip-import $id"
+    return 0
+  fi
+  local jobid_file="${ARTIFACT_ROOT}/${ENVIRONMENT}/${id}-import.jobid"
+  if [[ -f "$jobid_file" ]]; then
+    local existing latest
+    existing="$(cat "$jobid_file")"
+    latest="$(http_json GET "/api/v1/admin/lakes/jobs/${existing}" || true)"
+    if [[ -n "$latest" ]] && job_import_contract_ok <<<"$latest"; then
+      echo "skip-import $id already identity-SUCCEEDED job $existing"
+      return 0
+    fi
+  fi
+  echo "== enqueue import $id =="
+  local job_id
+  job_id="$(enqueue_ops_job "/api/v1/admin/lakes/${id}/import")"
+  echo "$job_id" > "$jobid_file"
+  echo "import job $id $job_id"
+}
+
+enqueue_process_if_needed() {
+  local id="$1"
+  if skip_process "$id"; then
+    echo "skip-process $id"
+    return 0
+  fi
+  echo "== enqueue process $id pipeline=$PIPELINE =="
+  local job_id
+  job_id="$(enqueue_ops_job "/api/v1/admin/lakes/${id}/process?pipeline=${PIPELINE}")"
+  echo "$job_id" > "${ARTIFACT_ROOT}/${ENVIRONMENT}/${id}-process.jobid"
+  echo "process job $id $job_id"
+}
+
+finish_succeeded_job() {
+  local id="$1" kind="$2" latest="$3" start_epoch="$4"
+  local artifact="${ARTIFACT_ROOT}/${ENVIRONMENT}/${id}-${kind}.json"
+  write_job_result "$artifact" <<<"$latest" >/dev/null
+  echo "${kind}_seconds=$(( $(date +%s) - start_epoch ))" | tee "${ARTIFACT_ROOT}/${ENVIRONMENT}/${id}-${kind}.time"
+  mark_done "$id" "$kind"
+}
+
+# Poll pending IMPORT jobs. Submit PROCESS as each IMPORT succeeds.
+# Does not wait for lake A's PROCESS/SNAPSHOT before lake B's IMPORT (imports already enqueued).
+queue_imports_then_process() {
+  local ids=()
+  while IFS= read -r id; do
+    [[ -n "$id" ]] && ids+=("$id")
+  done < <(lake_ids)
+
+  local id
+  for id in "${ids[@]}"; do
+    enqueue_import_if_needed "$id"
+  done
+
+  local pending_imports=()
+  for id in "${ids[@]}"; do
+    if [[ -f "${ARTIFACT_ROOT}/${ENVIRONMENT}/${id}-import.jobid" ]] && [[ "$(state_done "$id" import)" != "yes" ]]; then
+      pending_imports+=("$id")
+    fi
+  done
+
+  local failed=0
+  if ((${#pending_imports[@]})); then
+    for id in "${pending_imports[@]}"; do
+      date +%s > "${ARTIFACT_ROOT}/${ENVIRONMENT}/${id}-import.start"
+    done
+  fi
+
+  while [[ ${#pending_imports[@]} -gt 0 ]]; do
+    local still=()
+    for id in "${pending_imports[@]}"; do
+      local job_id latest status
+      job_id="$(cat "${ARTIFACT_ROOT}/${ENVIRONMENT}/${id}-import.jobid")"
+      latest="$(http_json GET "/api/v1/admin/lakes/jobs/${job_id}")"
+      status="$(job_status_from_json <<<"$latest")"
+      if [[ "$status" == "SUCCEEDED" ]] && job_import_contract_ok <<<"$latest"; then
+        echo "import succeeded $id"
+        finish_succeeded_job "$id" import "$latest" "$(cat "${ARTIFACT_ROOT}/${ENVIRONMENT}/${id}-import.start")"
+        enqueue_process_if_needed "$id"
+      elif [[ "$status" == "SUCCEEDED" ]]; then
+        echo "import job $id SUCCEEDED but identityResolved/ogfId missing; not enqueueing PROCESS" >&2
+        echo "$latest" >&2
+        failed=1
+      elif [[ "$status" == "FAILED" ]]; then
+        echo "import failed $id failureCode=$(job_failure_code_from_json <<<"$latest")" >&2
+        echo "$latest" >&2
+        failed=1
+      else
+        still+=("$id")
+      fi
+    done
+    pending_imports=()
+    if ((${#still[@]})); then
+      pending_imports=("${still[@]}")
+    fi
+    if [[ ${#pending_imports[@]} -gt 0 ]]; then
+      sleep 5
+    fi
+  done
+
+  for id in "${ids[@]}"; do
+    if [[ ! -f "${ARTIFACT_ROOT}/${ENVIRONMENT}/${id}-process.jobid" ]]; then
+      enqueue_process_if_needed "$id"
+    fi
+  done
+
+  local pending_process=()
+  for id in "${ids[@]}"; do
+    if [[ -f "${ARTIFACT_ROOT}/${ENVIRONMENT}/${id}-process.jobid" ]] && [[ "$(state_done "$id" process)" != "yes" ]]; then
+      pending_process+=("$id")
+      date +%s > "${ARTIFACT_ROOT}/${ENVIRONMENT}/${id}-process.start"
+    fi
+  done
+
+  while [[ ${#pending_process[@]} -gt 0 ]]; do
+    local still=()
+    for id in "${pending_process[@]}"; do
+      local job_id latest status
+      job_id="$(cat "${ARTIFACT_ROOT}/${ENVIRONMENT}/${id}-process.jobid")"
+      latest="$(http_json GET "/api/v1/admin/lakes/jobs/${job_id}")"
+      status="$(job_status_from_json <<<"$latest")"
+      if [[ "$status" == "SUCCEEDED" ]] && job_process_contract_ok <<<"$latest"; then
+        echo "process succeeded $id"
+        finish_succeeded_job "$id" process "$latest" "$(cat "${ARTIFACT_ROOT}/${ENVIRONMENT}/${id}-process.start")"
+      elif [[ "$status" == "SUCCEEDED" ]]; then
+        echo "process job $id SUCCEEDED but snapshot/processing contract failed" >&2
+        echo "$latest" >&2
+        failed=1
+      elif [[ "$status" == "FAILED" ]]; then
+        echo "process failed $id failureCode=$(job_failure_code_from_json <<<"$latest")" >&2
+        echo "$latest" >&2
+        failed=1
+      else
+        still+=("$id")
+      fi
+    done
+    pending_process=()
+    if ((${#still[@]})); then
+      pending_process=("${still[@]}")
+    fi
+    if [[ ${#pending_process[@]} -gt 0 ]]; then
+      sleep 5
+    fi
+  done
+
+  if [[ "$failed" -ne 0 ]]; then
+    echo "one or more IMPORT/PROCESS jobs failed" >&2
+    return 1
+  fi
+}
+
+queue_imports_only() {
+  local ids=()
+  while IFS= read -r id; do
+    [[ -n "$id" ]] && ids+=("$id")
+  done < <(lake_ids)
+  local id
+  for id in "${ids[@]}"; do
+    enqueue_import_if_needed "$id"
+  done
+  local pending=()
+  for id in "${ids[@]}"; do
+    if [[ -f "${ARTIFACT_ROOT}/${ENVIRONMENT}/${id}-import.jobid" ]] && [[ "$(state_done "$id" import)" != "yes" ]]; then
+      pending+=("$id")
+      date +%s > "${ARTIFACT_ROOT}/${ENVIRONMENT}/${id}-import.start"
+    fi
+  done
+  local failed=0
+  while [[ ${#pending[@]} -gt 0 ]]; do
+    local still=()
+    for id in "${pending[@]}"; do
+      local job_id latest status
+      job_id="$(cat "${ARTIFACT_ROOT}/${ENVIRONMENT}/${id}-import.jobid")"
+      latest="$(http_json GET "/api/v1/admin/lakes/jobs/${job_id}")"
+      status="$(job_status_from_json <<<"$latest")"
+      if [[ "$status" == "SUCCEEDED" ]] && job_import_contract_ok <<<"$latest"; then
+        finish_succeeded_job "$id" import "$latest" "$(cat "${ARTIFACT_ROOT}/${ENVIRONMENT}/${id}-import.start")"
+      elif [[ "$status" == "SUCCEEDED" ]]; then
+        echo "import job $id SUCCEEDED but identityResolved/ogfId missing" >&2
+        echo "$latest" >&2
+        failed=1
+      elif [[ "$status" == "FAILED" ]]; then
+        echo "import failed $id failureCode=$(job_failure_code_from_json <<<"$latest")" >&2
+        echo "$latest" >&2
+        failed=1
+      else
+        still+=("$id")
+      fi
+    done
+    pending=()
+    if ((${#still[@]})); then
+      pending=("${still[@]}")
+    fi
+    if [[ ${#pending[@]} -gt 0 ]]; then
+      sleep 5
+    fi
+  done
+  if [[ "$failed" -ne 0 ]]; then
+    return 1
+  fi
+}
+
+queue_processes_only() {
+  local ids=()
+  while IFS= read -r id; do
+    [[ -n "$id" ]] && ids+=("$id")
+  done < <(lake_ids)
+  local id
+  for id in "${ids[@]}"; do
+    enqueue_process_if_needed "$id"
+  done
+  local pending=()
+  for id in "${ids[@]}"; do
+    if [[ -f "${ARTIFACT_ROOT}/${ENVIRONMENT}/${id}-process.jobid" ]] && [[ "$(state_done "$id" process)" != "yes" ]]; then
+      pending+=("$id")
+      date +%s > "${ARTIFACT_ROOT}/${ENVIRONMENT}/${id}-process.start"
+    fi
+  done
+  local failed=0
+  while [[ ${#pending[@]} -gt 0 ]]; do
+    local still=()
+    for id in "${pending[@]}"; do
+      local job_id latest status
+      job_id="$(cat "${ARTIFACT_ROOT}/${ENVIRONMENT}/${id}-process.jobid")"
+      latest="$(http_json GET "/api/v1/admin/lakes/jobs/${job_id}")"
+      status="$(job_status_from_json <<<"$latest")"
+      if [[ "$status" == "SUCCEEDED" ]] && job_process_contract_ok <<<"$latest"; then
+        finish_succeeded_job "$id" process "$latest" "$(cat "${ARTIFACT_ROOT}/${ENVIRONMENT}/${id}-process.start")"
+      elif [[ "$status" == "SUCCEEDED" ]]; then
+        echo "process job $id SUCCEEDED but snapshot/processing contract failed" >&2
+        echo "$latest" >&2
+        failed=1
+      elif [[ "$status" == "FAILED" ]]; then
+        echo "process failed $id failureCode=$(job_failure_code_from_json <<<"$latest")" >&2
+        echo "$latest" >&2
+        failed=1
+      else
+        still+=("$id")
+      fi
+    done
+    pending=()
+    if ((${#still[@]})); then
+      pending=("${still[@]}")
+    fi
+    if [[ ${#pending[@]} -gt 0 ]]; then
+      sleep 5
+    fi
+  done
+  if [[ "$failed" -ne 0 ]]; then
+    return 1
+  fi
 }
 
 init_state() {
@@ -215,7 +599,7 @@ import_one() {
   echo "== import $id =="
   local start end
   start="$(date +%s)"
-  http_json POST "/api/v1/admin/lakes/${id}/import" > "${ARTIFACT_ROOT}/${ENVIRONMENT}/${id}-import.json"
+  post_ops_job "/api/v1/admin/lakes/${id}/import" "${ARTIFACT_ROOT}/${ENVIRONMENT}/${id}-import.json" import
   end="$(date +%s)"
   echo "import_seconds=$((end-start))" | tee "${ARTIFACT_ROOT}/${ENVIRONMENT}/${id}-import.time"
   mark_done "$id" import
@@ -234,7 +618,7 @@ process_one() {
   echo "== process $id pipeline=$PIPELINE =="
   local start end
   start="$(date +%s)"
-  http_json POST "/api/v1/admin/lakes/${id}/process?pipeline=${PIPELINE}" > "${ARTIFACT_ROOT}/${ENVIRONMENT}/${id}-process.json"
+  post_ops_job "/api/v1/admin/lakes/${id}/process?pipeline=${PIPELINE}" "${ARTIFACT_ROOT}/${ENVIRONMENT}/${id}-process.json" process
   end="$(date +%s)"
   echo "process_seconds=$((end-start))" | tee "${ARTIFACT_ROOT}/${ENVIRONMENT}/${id}-process.time"
   mark_done "$id" process
@@ -330,14 +714,25 @@ PY
 }
 
 write_report() {
-  python3 - "$ROOT" "$ENVIRONMENT" "$API_BASE" "$PIPELINE" "$SCENARIOS" <<'PY'
+  local run_id subset
+  run_id="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("runId") or "")' "$STATE_FILE" 2>/dev/null || true)"
+  if [[ -z "$run_id" ]]; then
+    run_id="$(date -u +%Y%m%dT%H%M%SZ)"
+  fi
+  subset=0
+  if [[ -n "${LAKE_IDS:-}" ]]; then
+    subset=1
+  fi
+  python3 - "$ROOT" "$ENVIRONMENT" "$API_BASE" "$PIPELINE" "$SCENARIOS" "$subset" "$run_id" "${LAKE_IDS:-}" <<'PY'
 import datetime, json, os, sys
-root, env, api, pipeline, scenarios = sys.argv[1:6]
+root, env, api, pipeline, scenarios, subset, run_id, lake_ids_csv = sys.argv[1:9]
 art = os.path.join(root, "build/validation-artifacts", env)
 report_dir = os.path.join(root, "docs/reports")
 os.makedirs(report_dir, exist_ok=True)
 cfg = json.load(open(scenarios))
 generated = datetime.datetime.now(datetime.UTC).replace(tzinfo=None).isoformat() + "Z"
+subset = subset == "1"
+selected = {item.strip() for item in lake_ids_csv.split(",") if item.strip()}
 
 def loadj(path):
     if not os.path.isfile(path):
@@ -357,6 +752,8 @@ def plan_completed(plan):
 
 lakes = []
 for lake_id, meta in cfg["lakes"].items():
+    if selected and lake_id not in selected:
+        continue
     row = {"lakeId": lake_id, "name": meta["name"]}
     for kind in ("import", "process", "validation", "trip", "plan", "species"):
         row[kind] = loadj(os.path.join(art, f"{lake_id}-{kind}.json"))
@@ -405,6 +802,8 @@ payload = {
     "environment": env,
     "apiBase": api,
     "pipeline": pipeline,
+    "runId": run_id,
+    "subset": subset,
     "overallStatus": overall,
     "aws": "EXTERNAL_PREREQUISITE" if env != "prod" else "RUN",
     "s3CloudWatchRds": "NOT_RUN" if env != "prod" else "OPTIONAL",
@@ -415,16 +814,26 @@ payload = {
     "openaiConfigured": False,
     "lakes": lakes,
 }
-json_path = os.path.join(report_dir, "production-data-validation.json")
+if subset:
+    stem = f"lake-ops-{env}-{run_id}"
+    json_path = os.path.join(report_dir, stem + ".json")
+    md_path = os.path.join(report_dir, stem + ".md")
+    report_title = "Lake ops subset run"
+else:
+    json_path = os.path.join(report_dir, "production-data-validation.json")
+    md_path = os.path.join(report_dir, "production-data-validation.md")
+    report_title = "Production data validation"
 json.dump(payload, open(json_path, "w"), indent=2, default=str)
 
 lines = [
-    "# Production data validation",
+    f"# {report_title}",
     "",
     f"- generatedAt: `{generated}`",
     f"- environment: `{env}`",
     f"- apiBase: `{api}`",
     f"- pipeline: `{pipeline}`",
+    f"- runId: `{run_id}`",
+    f"- subset: `{subset}`",
     f"- overall: **{overall}**",
     f"- visualReview: VISUAL_REVIEW_PENDING",
     f"- fishing quality: FISHING_QUALITY_NOT_YET_FIELD_VALIDATED",
@@ -533,7 +942,6 @@ lines += [
     "- FIELD-TESTING: visual QA of GeoJSON/PNG in gitignored `build/validation-artifacts` (`visualReview: VISUAL_REVIEW_PENDING`).",
     "- FUTURE DATA IMPROVEMENT: vegetation / bottom substrate `NOT_AVAILABLE` by design; wetland GeoJSON parse FAILED on live LIO for some lakes.",
 ]
-md_path = os.path.join(report_dir, "production-data-validation.md")
 open(md_path, "w").write("\n".join(lines) + "\n")
 print(md_path)
 print(json_path)
@@ -543,16 +951,15 @@ PY
 init_state
 case "$CMD" in
   bootstrap-lakes) bootstrap_lakes ;;
-  import-lake) bootstrap_lakes; for id in $(lake_ids); do import_one "$id"; done ;;
-  process-lake) for id in $(lake_ids); do process_one "$id"; done ;;
+  import-lake) bootstrap_lakes; queue_imports_only ;;
+  process-lake) queue_processes_only ;;
   validate-lake) for id in $(lake_ids); do validate_one "$id"; done ;;
   generate-validation-trip) for id in $(lake_ids); do plan_one "$id"; done ;;
   generate-validation-report) write_report ;;
   all)
     bootstrap_lakes
+    queue_imports_then_process
     for id in $(lake_ids); do
-      import_one "$id"
-      process_one "$id"
       validate_one "$id"
       plan_one "$id" || echo "plan failed for $id (recorded)"
     done

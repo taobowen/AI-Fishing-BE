@@ -11,6 +11,8 @@ import com.aifishing.lake.ingestion.domain.FishingRestriction;
 import com.aifishing.launch.ResolvedTripLaunch;
 import com.aifishing.planning.PlanningProperties;
 import com.aifishing.planning.candidate.LakePlanningGeometry;
+import com.aifishing.planning.environment.GenerateOrientationCache;
+import com.aifishing.planning.spatial.PendingZoneWaterPaths;
 import com.aifishing.planning.route.AccessResolution;
 import com.aifishing.strategy.domain.FishingStrategyProfile;
 import com.aifishing.strategy.domain.StrategyRun;
@@ -39,12 +41,16 @@ public record PlanningContext(
         ResolvedBoatCapability baselineBoatCapability,
         EffectiveBoatCapability effectiveBoatCapability,
         ResolvedTripLaunch launch,
-        com.aifishing.planning.spatial.SpatialSnapshotView spatialSnapshot
+        com.aifishing.planning.spatial.SpatialSnapshotView spatialSnapshot,
+        GenerateOrientationCache orientationCache,
+        PendingZoneWaterPaths pendingZoneWaterPaths
 ) {
     public PlanningContext {
         restrictions = restrictions == null ? List.of() : List.copyOf(restrictions);
         gearTypes = gearTypes == null ? List.of() : List.copyOf(gearTypes);
         warnings = warnings == null ? new ArrayList<>() : warnings;
+        orientationCache = orientationCache == null ? new GenerateOrientationCache() : orientationCache;
+        pendingZoneWaterPaths = pendingZoneWaterPaths == null ? new PendingZoneWaterPaths() : pendingZoneWaterPaths;
     }
 
     public PlanningContext(
@@ -79,6 +85,50 @@ public record PlanningContext(
                 null,
                 null,
                 null,
+                null,
+                null,
+                null
+        );
+    }
+
+    public PlanningContext(
+            Trip trip,
+            Lake lake,
+            Boat boat,
+            AccessResolution access,
+            LakePlanningGeometry geometry,
+            List<FishingRestriction> restrictions,
+            String regulationCoverageStatus,
+            WeatherContext weather,
+            List<GearType> gearTypes,
+            FishingStrategyProfile profile,
+            StrategyRun strategyRun,
+            PlanningProperties properties,
+            List<String> warnings,
+            ResolvedBoatCapability baselineBoatCapability,
+            EffectiveBoatCapability effectiveBoatCapability,
+            ResolvedTripLaunch launch,
+            com.aifishing.planning.spatial.SpatialSnapshotView spatialSnapshot
+    ) {
+        this(
+                trip,
+                lake,
+                boat,
+                access,
+                geometry,
+                restrictions,
+                regulationCoverageStatus,
+                weather,
+                gearTypes,
+                profile,
+                strategyRun,
+                properties,
+                warnings,
+                baselineBoatCapability,
+                effectiveBoatCapability,
+                launch,
+                spatialSnapshot,
+                null,
                 null
         );
     }
@@ -101,7 +151,9 @@ public record PlanningContext(
                 baselineBoatCapability,
                 effectiveBoatCapability,
                 launch,
-                spatialSnapshot
+                spatialSnapshot,
+                orientationCache,
+                pendingZoneWaterPaths
         );
     }
 
@@ -123,7 +175,33 @@ public record PlanningContext(
                 baselineBoatCapability,
                 effectiveBoatCapability,
                 launch,
-                spatialSnapshot
+                spatialSnapshot,
+                orientationCache,
+                pendingZoneWaterPaths
+        );
+    }
+
+    public PlanningContext withEffectiveBoat(EffectiveBoatCapability effectiveBoatCapability) {
+        return new PlanningContext(
+                trip,
+                lake,
+                boat,
+                access,
+                geometry,
+                restrictions,
+                regulationCoverageStatus,
+                weather,
+                gearTypes,
+                profile,
+                strategyRun,
+                properties,
+                warnings,
+                baselineBoatCapability,
+                effectiveBoatCapability,
+                launch,
+                spatialSnapshot,
+                orientationCache,
+                pendingZoneWaterPaths
         );
     }
 

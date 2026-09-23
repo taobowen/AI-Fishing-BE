@@ -4,6 +4,7 @@ import com.aifishing.boat.domain.BoatMotor;
 import com.aifishing.common.enums.BoatType;
 import com.aifishing.common.enums.PropulsionType;
 import com.aifishing.common.enums.WindWaveCapability;
+import com.fasterxml.jackson.annotation.JsonProperty;
 
 import java.math.BigDecimal;
 import java.util.List;
@@ -23,6 +24,7 @@ public record UpdateBoatRequest(
         BigDecimal comfortableRoundTripRangeKm,
         WindWaveCapability windWaveOverride,
         String notes,
-        Boolean active
+        Boolean active,
+        @JsonProperty("isDefault") Boolean isDefault
 ) {
 }

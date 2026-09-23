@@ -2,6 +2,7 @@ package com.aifishing.planning.spatial;
 
 import com.aifishing.common.geo.GeoMapper;
 import com.aifishing.common.geo.LocalMetricCrs;
+import com.aifishing.common.geo.PolygonalGeometries;
 import com.aifishing.planning.PlanningProperties;
 import com.aifishing.planning.candidate.LakePlanningGeometry;
 import org.locationtech.jts.geom.Coordinate;
@@ -67,7 +68,7 @@ public class LocalWaterPathEstimator {
             cols = Math.max(1, (int) Math.ceil(envelope.getWidth() / cell) + 1);
             rows = Math.max(1, (int) Math.ceil(envelope.getHeight() / cell) + 1);
         }
-        Geometry blocked = islands == null || islands.isEmpty() ? null : islands.buffer(cell * 0.55);
+        Geometry blocked = bufferIslands(islands, cell * 0.55);
         Geometry localWater = clipToEnvelope(water, envelope);
         Geometry localBlocked = clipToEnvelope(blocked, envelope);
         if (localWater == null || localWater.isEmpty()) {
@@ -266,7 +267,15 @@ public class LocalWaterPathEstimator {
             Geometry metric = projected.toMetric(island);
             acc = acc == null ? metric : acc.union(metric);
         }
-        return acc;
+        return PolygonalGeometries.of(acc);
+    }
+
+    private static Geometry bufferIslands(Geometry islands, double distance) {
+        Geometry polygonal = PolygonalGeometries.of(islands);
+        if (polygonal == null || polygonal.isEmpty()) {
+            return null;
+        }
+        return polygonal.buffer(distance);
     }
 
     private static Point metricPoint(GeometryFactory factory, double x, double y, int srid) {
@@ -343,7 +352,7 @@ public class LocalWaterPathEstimator {
             cols = Math.max(1, (int) Math.ceil(envelope.getWidth() / cell) + 1);
             rows = Math.max(1, (int) Math.ceil(envelope.getHeight() / cell) + 1);
         }
-        Geometry blocked = islands == null || islands.isEmpty() ? null : islands.buffer(cell * 0.55);
+        Geometry blocked = bufferIslands(islands, cell * 0.55);
         Geometry localWater = clipToEnvelope(water, envelope);
         Geometry localBlocked = clipToEnvelope(blocked, envelope);
         if (localWater == null || localWater.isEmpty()) {

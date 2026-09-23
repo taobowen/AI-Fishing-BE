@@ -61,7 +61,7 @@ class TimeAwarePlanningIT extends AbstractIntegrationTest {
                 .andExpect(jsonPath("$.status", is("COMPLETED")))
                 .andExpect(jsonPath("$.plan.plannedLaunchDepartureAt", not(nullValue())))
                 .andExpect(jsonPath("$.plan.plannedReturnAt", not(nullValue())))
-                .andExpect(jsonPath("$.plan.scheduleAlgorithmVersion", is("1.4.0")))
+                .andExpect(jsonPath("$.plan.scheduleAlgorithmVersion", is("1.5.0")))
                 .andExpect(jsonPath("$.plan.waypoints[0].plannedArrivalAt", not(nullValue())))
                 .andExpect(jsonPath("$.plan.waypoints[0].plannedDwellMinutes", not(nullValue())));
 

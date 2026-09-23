@@ -7,6 +7,10 @@ import java.util.UUID;
 public record GeneratePlanRequest(
         UUID strategyRunId,
         UUID accessPointId,
-        Pipeline featurePipeline
+        Pipeline featurePipeline,
+        Boolean includeAiTactics
 ) {
+    public boolean aiTacticsRequested() {
+        return Boolean.TRUE.equals(includeAiTactics);
+    }
 }

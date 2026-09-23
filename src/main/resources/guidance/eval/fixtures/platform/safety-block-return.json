@@ -1,0 +1,14 @@
+{
+  "caseId": "platform/safety-block-return",
+  "kind": "PLATFORM_REGRESSION",
+  "replayMode": "FROZEN_REPLAY",
+  "recomputedComponents": [],
+  "allowedActions": ["RETURN"],
+  "forbiddenActions": ["MOVE", "STAY", "CHANGE_LURE", "CHANGE_DEPTH", "CHANGE_RETRIEVE"],
+  "invariants": ["BLOCK_REQUIRES_RETURN"],
+  "exactPrimaryAction": "RETURN",
+  "recordedPrimaryAction": "RETURN",
+  "recordedOutcomeKind": "NONE",
+  "snapshotRef": "safety-block",
+  "scenarioId": "platform-safety-block"
+}

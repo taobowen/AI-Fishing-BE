@@ -12,4 +12,6 @@ public interface LakeFishingZoneMemberRepository extends JpaRepository<LakeFishi
     List<LakeFishingZoneMember> findByZoneIdOrderBySequenceAsc(UUID zoneId);
 
     List<LakeFishingZoneMember> findByZoneIdInOrderByZoneIdAscSequenceAsc(List<UUID> zoneIds);
+
+    List<LakeFishingZoneMember> findByFishingTargetIdOrderBySequenceAsc(UUID fishingTargetId);
 }

@@ -1,7 +1,7 @@
 import { CfnOutput, Duration, Stack, StackProps } from "aws-cdk-lib";
 import { Certificate, CertificateValidation } from "aws-cdk-lib/aws-certificatemanager";
 import { Alarm, ComparisonOperator, TreatMissingData } from "aws-cdk-lib/aws-cloudwatch";
-import { SecurityGroup, SubnetType, Vpc } from "aws-cdk-lib/aws-ec2";
+import { CfnSecurityGroupIngress, SecurityGroup, SubnetType, Vpc } from "aws-cdk-lib/aws-ec2";
 import { Repository } from "aws-cdk-lib/aws-ecr";
 import {
   Cluster,
@@ -23,6 +23,7 @@ import {
   SslPolicy,
   TargetType,
 } from "aws-cdk-lib/aws-elasticloadbalancingv2";
+import { Effect, PolicyStatement } from "aws-cdk-lib/aws-iam";
 import { UserPool, UserPoolClient, UserPoolDomain } from "aws-cdk-lib/aws-cognito";
 import { RetentionDays } from "aws-cdk-lib/aws-logs";
 import { DatabaseInstance } from "aws-cdk-lib/aws-rds";
@@ -38,6 +39,7 @@ export interface ApiStackProps extends StackProps {
   vpc: Vpc;
   albSecurityGroup: SecurityGroup;
   ecsSecurityGroup: SecurityGroup;
+  rdsSecurityGroup: SecurityGroup;
   bucket: Bucket;
   database: DatabaseInstance;
   dbSecret: Secret;
@@ -66,7 +68,23 @@ export class ApiStack extends Stack {
     const repositoryName = `aifishing-api-${config.stage}`;
     const repository = Repository.fromRepositoryName(this, "ApiRepo", repositoryName);
 
-    const cluster = new Cluster(this, "Cluster", { vpc: props.vpc, containerInsights: true });
+    const lakeWorkerSecurityGroup = new SecurityGroup(this, "LakeWorkerSg", {
+      vpc: props.vpc,
+      allowAllOutbound: true,
+      description: "On-demand lake import/process/snapshot Fargate tasks; no public ingress",
+    });
+    // Standalone ingress in this stack — do not use database.connections.allowFrom,
+    // which would attach the rule to Foundation's RDS SG and create a stack cycle.
+    new CfnSecurityGroupIngress(this, "LakeWorkerToPostgres", {
+      groupId: props.rdsSecurityGroup.securityGroupId,
+      sourceSecurityGroupId: lakeWorkerSecurityGroup.securityGroupId,
+      ipProtocol: "tcp",
+      fromPort: 5432,
+      toPort: 5432,
+      description: "Lake worker to Postgres",
+    });
+
+    const cluster = new Cluster(this, "Cluster", { vpc: props.vpc, containerInsights: false });
 
     const taskDefinition = new FargateTaskDefinition(this, "Task", {
       cpu: config.cpu,
@@ -80,6 +98,54 @@ export class ApiStack extends Stack {
 
     const issuer = `https://cognito-idp.${this.region}.amazonaws.com/${props.userPool.userPoolId}`;
     const jdbcHost = props.database.instanceEndpoint.hostname;
+    const publicSubnets = props.vpc.selectSubnets({ subnetType: SubnetType.PUBLIC }).subnetIds;
+    const sharedEnv = {
+      SERVER_PORT: "8080",
+      APP_RAW_STORAGE: "s3",
+      AWS_REGION: this.region,
+      AWS_DEFAULT_REGION: this.region,
+      APP_AWS_REGION: this.region,
+      APP_S3_BUCKET: props.bucket.bucketName,
+      APP_AUTH_ISSUER: issuer,
+      APP_AUTH_CLIENT_ID: props.userPoolClient.userPoolClientId,
+      APP_AUTH_WEB_CLIENT_ID: props.webUserPoolClient.userPoolClientId,
+      APP_CORS_ALLOWED_ORIGIN_PATTERNS: [
+        "http://localhost:*",
+        "http://127.0.0.1:*",
+        ...(config.webDomain ? [`https://${config.webDomain}`] : []),
+        ...(config.nextWebDomain ? [`https://${config.nextWebDomain}`] : []),
+      ].join(","),
+      SPRING_DATASOURCE_URL: `jdbc:postgresql://${jdbcHost}:5432/aifishing`,
+      JAVA_TOOL_OPTIONS: "-XX:MaxRAMPercentage=75 -XX:+UseG1GC",
+    };
+    const sharedSecrets = {
+      SPRING_DATASOURCE_USERNAME: EcsSecret.fromSecretsManager(props.dbSecret, "username"),
+      SPRING_DATASOURCE_PASSWORD: EcsSecret.fromSecretsManager(props.dbSecret, "password"),
+      OPENAI_API_KEY: EcsSecret.fromSecretsManager(props.openaiSecret),
+    };
+
+    const workerTaskDefinition = new FargateTaskDefinition(this, "LakeWorkerTask", {
+      cpu: config.workerCpu,
+      memoryLimitMiB: config.workerMemoryMiB,
+      runtimePlatform: {
+        cpuArchitecture: CpuArchitecture.X86_64,
+        operatingSystemFamily: OperatingSystemFamily.LINUX,
+      },
+    });
+    props.bucket.grantReadWrite(workerTaskDefinition.taskRole);
+    workerTaskDefinition.addContainer("worker", {
+      image: ContainerImage.fromEcrRepository(repository, config.imageTag),
+      logging: LogDrivers.awsLogs({
+        streamPrefix: "lake-worker",
+        logRetention: retention(config.logRetentionDays),
+      }),
+      environment: {
+        ...sharedEnv,
+        SPRING_PROFILES_ACTIVE: "prod,worker",
+      },
+      secrets: sharedSecrets,
+    });
+
     const container = taskDefinition.addContainer("api", {
       image: ContainerImage.fromEcrRepository(repository, config.imageTag),
       logging: LogDrivers.awsLogs({
@@ -87,31 +153,48 @@ export class ApiStack extends Stack {
         logRetention: retention(config.logRetentionDays),
       }),
       environment: {
+        ...sharedEnv,
         SPRING_PROFILES_ACTIVE: "prod",
-        SERVER_PORT: "8080",
-        APP_RAW_STORAGE: "s3",
-        AWS_REGION: this.region,
-        AWS_DEFAULT_REGION: this.region,
-        APP_AWS_REGION: this.region,
-        APP_S3_BUCKET: props.bucket.bucketName,
-        APP_AUTH_ISSUER: issuer,
-        APP_AUTH_CLIENT_ID: props.userPoolClient.userPoolClientId,
-        APP_AUTH_WEB_CLIENT_ID: props.webUserPoolClient.userPoolClientId,
-        APP_CORS_ALLOWED_ORIGIN_PATTERNS: [
-          "http://localhost:*",
-          "http://127.0.0.1:*",
-          ...(config.webDomain ? [`https://${config.webDomain}`] : []),
-        ].join(","),
-        SPRING_DATASOURCE_URL: `jdbc:postgresql://${jdbcHost}:5432/aifishing`,
-        JAVA_TOOL_OPTIONS: "-XX:MaxRAMPercentage=75 -XX:+UseG1GC",
+        APP_OPS_ECS_CLUSTER: cluster.clusterName,
+        APP_OPS_ECS_TASK_DEFINITION: workerTaskDefinition.taskDefinitionArn,
+        APP_OPS_ECS_SECURITY_GROUP: lakeWorkerSecurityGroup.securityGroupId,
+        APP_OPS_ECS_SUBNETS: publicSubnets.join(","),
+        APP_OPS_ECS_ASSIGN_PUBLIC_IP: "ENABLED",
       },
-      secrets: {
-        SPRING_DATASOURCE_USERNAME: EcsSecret.fromSecretsManager(props.dbSecret, "username"),
-        SPRING_DATASOURCE_PASSWORD: EcsSecret.fromSecretsManager(props.dbSecret, "password"),
-        OPENAI_API_KEY: EcsSecret.fromSecretsManager(props.openaiSecret),
-      },
+      secrets: sharedSecrets,
     });
     container.addPortMappings({ containerPort: 8080, protocol: Protocol.TCP });
+
+    taskDefinition.taskRole.addToPrincipalPolicy(
+      new PolicyStatement({
+        effect: Effect.ALLOW,
+        actions: ["ecs:RunTask"],
+        resources: [workerTaskDefinition.taskDefinitionArn],
+        conditions: {
+          ArnEquals: { "ecs:cluster": cluster.clusterArn },
+        },
+      }),
+    );
+    taskDefinition.taskRole.addToPrincipalPolicy(
+      new PolicyStatement({
+        effect: Effect.ALLOW,
+        actions: ["iam:PassRole"],
+        resources: [workerTaskDefinition.taskRole.roleArn, workerTaskDefinition.obtainExecutionRole().roleArn],
+        conditions: {
+          StringEquals: { "iam:PassedToService": "ecs-tasks.amazonaws.com" },
+        },
+      }),
+    );
+    taskDefinition.taskRole.addToPrincipalPolicy(
+      new PolicyStatement({
+        effect: Effect.ALLOW,
+        actions: ["ecs:DescribeTasks"],
+        resources: ["*"],
+        conditions: {
+          ArnEquals: { "ecs:cluster": cluster.clusterArn },
+        },
+      }),
+    );
 
     const service = new FargateService(this, "Service", {
       cluster,
@@ -238,5 +321,6 @@ export class ApiStack extends Stack {
     new CfnOutput(this, "HttpsConfigured", { value: String(httpsReady) });
     new CfnOutput(this, "ClusterName", { value: cluster.clusterName });
     new CfnOutput(this, "ServiceName", { value: service.serviceName });
+    new CfnOutput(this, "WorkerTaskDefinitionArn", { value: workerTaskDefinition.taskDefinitionArn });
   }
 }

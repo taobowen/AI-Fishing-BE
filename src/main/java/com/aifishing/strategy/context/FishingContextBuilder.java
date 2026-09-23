@@ -6,6 +6,7 @@ import com.aifishing.lake.repo.LakeRepository;
 import com.aifishing.lake.processing.dto.Pipeline;
 import com.aifishing.strategy.domain.DataLimitation;
 import com.aifishing.strategy.domain.DataLimitationCode;
+import com.aifishing.planning.spatial.GenerateProfiler;
 import com.aifishing.strategy.weather.WeatherAvailability;
 import com.aifishing.strategy.weather.WeatherContext;
 import com.aifishing.strategy.weather.WeatherService;
@@ -43,11 +44,14 @@ public class FishingContextBuilder {
     }
 
     public FishingContext build(Trip trip, Pipeline featurePipeline) {
+        GenerateProfiler.current().start(GenerateProfiler.STRATEGY_CONTEXT);
         Lake lake = lakeRepository.findById(trip.getLakeId())
                 .orElseThrow(() -> new IllegalStateException("Lake not found for trip " + trip.getId()));
+        var window = com.aifishing.planning.environment.TripClock.resolve(trip, lake);
         TripContext tripContext = new TripContext(
                 trip.getId(),
                 trip.getPlannedDate(),
+                window.plannedEndDate(),
                 trip.getFishingStartTime(),
                 trip.getFishingEndTime(),
                 lake.getTimeZoneId(),
@@ -58,7 +62,10 @@ public class FishingContextBuilder {
         );
         UserFishingContext user = userFishingContextBuilder.build(trip.getUserId(), trip.getBoatId());
         LakeStrategyContext lakeContext = lakeContextBuilder.build(lake, featurePipeline);
+        GenerateProfiler.current().end(GenerateProfiler.STRATEGY_CONTEXT);
+        GenerateProfiler.current().start(GenerateProfiler.WEATHER_RESOLVE);
         WeatherContext weather = weather(lake, trip);
+        GenerateProfiler.current().end(GenerateProfiler.WEATHER_RESOLVE);
         List<DataLimitation> limitations = mergeLimitations(trip, lakeContext, weather);
         return new FishingContext(tripContext, user, lakeContext, weather, limitations);
     }
@@ -72,11 +79,13 @@ public class FishingContextBuilder {
         Point centroid = lake.getCentroid();
         double latitude = centroid.getY();
         double longitude = centroid.getX();
+        var window = com.aifishing.planning.environment.TripClock.resolve(trip, lake);
         return weatherService.forTrip(
                 latitude,
                 longitude,
                 lake.getTimeZoneId(),
-                trip.getPlannedDate(),
+                window.plannedDate(),
+                window.plannedEndDate(),
                 trip.getFishingStartTime(),
                 trip.getFishingEndTime()
         );

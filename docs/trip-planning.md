@@ -2,7 +2,13 @@
 
 Phase 5 turns a **COMPLETED** Phase 4 `StrategyRun` plus PostGIS `lake_features` into a versioned **TripPlan** / **TripWaypoint** list. Phase 4 decided *what* to prefer (structure types, depths, techniques). Phase 5 decides *where* those structures exist and in what order to fish them.
 
-**User Generate Plan** (`POST /api/v1/trips/{tripId}/plan`) verifies trip ownership, then either:
+**User Generate Plan** (`POST /api/v1/trips/{tripId}/plan`) verifies trip ownership.
+
+Default (no `Prefer` header) stays **synchronous**: the response is `200` with a completed or failed `GeneratePlanResponse`. This is what the current App Store binary expects.
+
+`Prefer: respond-async` is opt-in. The API persists a `RUNNING` `PlanningRun`, returns **202** (`planningRunId`, `status: RUNNING`, `plan` null), and finishes on the always-on API process. Poll `GET /api/v1/trips/{tripId}/planning-runs/{runId}` (owner only) until `COMPLETED` or `FAILED`, then `GET /api/v1/trips/{tripId}/plan` for the document. Do not treat `GET /plan` 404 as the job protocol. A `RUNNING` row older than 15 minutes is marked `FAILED` (`GENERATION_TIMEOUT`) on that GET. Same Web `Idempotency-Key` while `RUNNING` returns the same run (202); a completed key still replays `200`.
+
+Pipeline selection:
 
 - omitted / `"featurePipeline":"GIS"` → **Standard Plan** (user default `app.planning.user-default-feature-pipeline`, GIS)
 - `"featurePipeline":"HYBRID"` → **AI-Enhanced Plan (Experimental)**

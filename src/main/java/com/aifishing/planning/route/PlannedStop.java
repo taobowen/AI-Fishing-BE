@@ -4,6 +4,7 @@ import com.aifishing.planning.ranking.RankedCandidate;
 import com.aifishing.planning.ranking.ScoreBreakdown;
 import com.aifishing.planning.spatial.FishingVisitOption;
 import com.aifishing.planning.spatial.TargetKind;
+import com.aifishing.planning.spatial.ZoneFishingPackage;
 import com.aifishing.planning.spatial.ZoneSubPlan;
 import org.locationtech.jts.geom.Geometry;
 import org.locationtech.jts.geom.Point;
@@ -28,7 +29,11 @@ public record PlannedStop(
         ZoneSubPlan zoneSubPlan,
         int plannedFishingMinutes,
         int plannedInternalTransitMinutes,
-        int plannedWaitMinutes
+        int plannedWaitMinutes,
+        MacroVisitKind visitKind,
+        double visitIncrement,
+        double localDistanceKm,
+        ZoneFishingPackage fishingPackage
 ) {
     public PlannedStop(
             RankedCandidate candidate,
@@ -57,7 +62,51 @@ public record PlannedStop(
                 null,
                 stayMinutes,
                 0,
-                0
+                0,
+                null,
+                0,
+                0,
+                null
+        );
+    }
+
+    public PlannedStop(
+            RankedCandidate candidate,
+            Instant arrivalAt,
+            Instant departureAt,
+            int stayMinutes,
+            TravelEstimate fromPrevious,
+            ScoreBreakdown timeScore,
+            List<String> whyThisTime,
+            Map<String, Object> environment,
+            int precedingWaitMinutes,
+            String precedingWaitLocation,
+            FishingVisitOption visitOption,
+            ZoneSubPlan zoneSubPlan,
+            int plannedFishingMinutes,
+            int plannedInternalTransitMinutes,
+            int plannedWaitMinutes
+    ) {
+        this(
+                candidate,
+                arrivalAt,
+                departureAt,
+                stayMinutes,
+                fromPrevious,
+                timeScore,
+                whyThisTime,
+                environment,
+                precedingWaitMinutes,
+                precedingWaitLocation,
+                visitOption,
+                zoneSubPlan,
+                plannedFishingMinutes,
+                plannedInternalTransitMinutes,
+                plannedWaitMinutes,
+                null,
+                0,
+                0,
+                null
         );
     }
 
@@ -93,5 +142,38 @@ public record PlannedStop(
 
     public Geometry targetGeometry() {
         return candidate.spot().getTargetGeometry();
+    }
+
+    public UUID opportunityIdentity() {
+        if (candidate == null || candidate.spot() == null) {
+            return null;
+        }
+        return RouteOpportunityState.isZone(candidate.spot())
+                ? RouteOpportunityState.zoneIdentity(candidate.spot())
+                : RouteOpportunityState.atomicIdentity(candidate.spot());
+    }
+
+    public PlannedStop withExplanation(List<String> lines, Map<String, Object> env) {
+        return new PlannedStop(
+                candidate,
+                arrivalAt,
+                departureAt,
+                stayMinutes,
+                fromPrevious,
+                timeScore,
+                lines,
+                env,
+                precedingWaitMinutes,
+                precedingWaitLocation,
+                visitOption,
+                zoneSubPlan,
+                plannedFishingMinutes,
+                plannedInternalTransitMinutes,
+                plannedWaitMinutes,
+                visitKind,
+                visitIncrement,
+                localDistanceKm,
+                fishingPackage
+        );
     }
 }

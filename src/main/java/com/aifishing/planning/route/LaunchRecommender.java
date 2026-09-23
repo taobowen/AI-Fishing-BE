@@ -114,19 +114,42 @@ public class LaunchRecommender {
             PlanningContext context
     ) {
         LaunchProperties.Recommendation rec = launchProperties.getRecommendation();
-        int topN = Math.max(1, rec.getTopCandidateCount());
         List<CandidateQuality> qualities = new ArrayList<>();
-        for (CandidateSpot spot : candidates) {
-            if (spot.getLocation() == null) {
-                continue;
+        Map<UUID, UUID> targetToZone = targetToZone(context);
+        if (!targetToZone.isEmpty()) {
+            Map<UUID, List<CandidateSpot>> membersByZone = new java.util.LinkedHashMap<>();
+            for (CandidateSpot spot : candidates) {
+                UUID zoneId = spot.getZoneId() != null ? spot.getZoneId() : targetToZone.get(spot.getFishingTargetId());
+                if (zoneId == null) {
+                    continue;
+                }
+                membersByZone.computeIfAbsent(zoneId, ignored -> new ArrayList<>()).add(spot);
             }
-            EmpiricalEvidence evidence = empirical.getOrDefault(spot.getFeatureId(), EmpiricalEvidence.none());
-            double intrinsic = rankingService.intrinsicFishingQuality(
-                    spot, context, windowDepth(context, spot), evidence);
-            TravelEstimate travel = travelTimeEstimator.estimate(routeStart, spot.getLocation(), context);
-            qualities.add(new CandidateQuality(intrinsic, travel.distanceM(), travel.minutes(), inRange(context, travel.distanceM())));
+            for (List<CandidateSpot> members : membersByZone.values()) {
+                Point centroid = members.get(0).getLocation();
+                double summary = RegionalLaunchSummary.score(
+                        members, routeStart, context, rankingService,
+                        spot -> empirical.getOrDefault(spot.getFeatureId(), EmpiricalEvidence.none()));
+                TravelEstimate travel = centroid == null
+                        ? new TravelEstimate(0, 0, 1, false)
+                        : travelTimeEstimator.estimate(routeStart, centroid, context);
+                qualities.add(new CandidateQuality(summary, travel.distanceM(), travel.minutes(), inRange(context, travel.distanceM())));
+            }
+        }
+        if (qualities.isEmpty()) {
+            for (CandidateSpot spot : candidates) {
+                if (spot.getLocation() == null) {
+                    continue;
+                }
+                EmpiricalEvidence evidence = empirical.getOrDefault(spot.getFeatureId(), EmpiricalEvidence.none());
+                double intrinsic = rankingService.intrinsicFishingQuality(
+                        spot, context, windowDepth(context, spot), evidence);
+                TravelEstimate travel = travelTimeEstimator.estimate(routeStart, spot.getLocation(), context);
+                qualities.add(new CandidateQuality(intrinsic, travel.distanceM(), travel.minutes(), inRange(context, travel.distanceM())));
+            }
         }
         qualities.sort(Comparator.comparingDouble(CandidateQuality::intrinsic).reversed());
+        int topN = Math.max(1, rec.getTopCandidateCount());
         List<CandidateQuality> top = qualities.stream().limit(topN).toList();
         double coverage = top.stream().mapToDouble(CandidateQuality::intrinsic).average().orElse(0);
         double meanTravelM = top.stream().mapToDouble(CandidateQuality::travelM).average().orElse(0);
@@ -162,6 +185,21 @@ public class LaunchRecommender {
             }
         }
         return null;
+    }
+
+    private static Map<UUID, UUID> targetToZone(PlanningContext context) {
+        Map<UUID, UUID> out = new java.util.HashMap<>();
+        if (context.spatialSnapshot() == null) {
+            return out;
+        }
+        context.spatialSnapshot().membersByZone().forEach((zoneId, members) -> {
+            for (var member : members) {
+                if (member.getFishingTargetId() != null) {
+                    out.putIfAbsent(member.getFishingTargetId(), zoneId);
+                }
+            }
+        });
+        return out;
     }
 
     private static boolean inRange(PlanningContext context, double distanceM) {

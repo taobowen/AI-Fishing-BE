@@ -16,6 +16,7 @@ public record LakeSummaryResponse(
         BigDecimal meanDepthM,
         BigDecimal maxDepthM,
         String timeZoneId,
+        String cardImageUrl,
         Instant createdAt,
         Instant updatedAt
 ) {

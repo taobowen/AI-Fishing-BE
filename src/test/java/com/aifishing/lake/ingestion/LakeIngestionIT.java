@@ -13,13 +13,22 @@ import com.aifishing.lake.ingestion.repo.LakeWaterwayRepository;
 import com.aifishing.lake.ingestion.repo.RawDataObjectRepository;
 import com.aifishing.lake.ingestion.repo.WetlandRepository;
 import com.aifishing.lake.ingestion.source.OntarioFeatureClient;
+import com.aifishing.lake.ingestion.job.ImportJobRunner;
+import com.aifishing.lake.ops.LakeOpsDedupe;
+import com.aifishing.lake.ops.LakeOpsJob;
+import com.aifishing.lake.ops.LakeOpsJobExecutor;
+import com.aifishing.lake.ops.LakeOpsJobKind;
+import com.aifishing.lake.ops.LakeOpsJobRepository;
+import com.aifishing.lake.ops.LakeOpsJobStatus;
 import com.aifishing.planning.PlanningFixtures;
 import com.aifishing.seed.DevSeedIds;
+import com.fasterxml.jackson.databind.JsonNode;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.locationtech.jts.geom.Geometry;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 
 import java.time.Instant;
 import java.util.List;
@@ -32,6 +41,9 @@ import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.notNullValue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doReturn;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -42,6 +54,15 @@ class LakeIngestionIT extends AbstractIntegrationTest {
 
     @MockitoBean
     OntarioFeatureClient ontarioFeatureClient;
+
+    @MockitoSpyBean
+    ImportJobRunner importJobRunner;
+
+    @Autowired
+    LakeOpsJobExecutor lakeOpsJobExecutor;
+
+    @Autowired
+    LakeOpsJobRepository lakeOpsJobRepository;
 
     @Autowired
     LakeDatasetStatusRepository datasetStatusRepository;
@@ -94,11 +115,10 @@ class LakeIngestionIT extends AbstractIntegrationTest {
 
     @Test
     void importPersistsPaginatedRawCanonicalAndAdminSummary() throws Exception {
-        mockMvc.perform(asDev(post("/api/v1/admin/lakes/" + DevSeedIds.LAKE_ID + "/import")))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.identityResolved", is(true)))
-                .andExpect(jsonPath("$.ogfId", is(1001)))
-                .andExpect(jsonPath("$.datasets", hasSize(16)));
+        JsonNode result = awaitLakeOpsJobResult(asDev(post("/api/v1/admin/lakes/" + DevSeedIds.LAKE_ID + "/import")));
+        assertThat(result.path("identityResolved").asBoolean()).isTrue();
+        assertThat(result.path("ogfId").asInt()).isEqualTo(1001);
+        assertThat(result.path("datasets")).hasSize(16);
 
         assertThat(boundaryRepository.countByLakeIdAndProvider(DevSeedIds.LAKE_ID, "LIO")).isEqualTo(1);
         assertThat(waterwayRepository.countByLakeIdAndProviderAndType(DevSeedIds.LAKE_ID, "LIO", "SHORELINE")).isEqualTo(2);
@@ -164,10 +184,8 @@ class LakeIngestionIT extends AbstractIntegrationTest {
 
     @Test
     void repeatImportDoesNotDuplicateCanonicalRows() throws Exception {
-        mockMvc.perform(asDev(post("/api/v1/admin/lakes/" + DevSeedIds.LAKE_ID + "/import")))
-                .andExpect(status().isOk());
-        mockMvc.perform(asDev(post("/api/v1/admin/lakes/" + DevSeedIds.LAKE_ID + "/import")))
-                .andExpect(status().isOk());
+        awaitLakeOpsJobResult(asDev(post("/api/v1/admin/lakes/" + DevSeedIds.LAKE_ID + "/import")));
+        awaitLakeOpsJobResult(asDev(post("/api/v1/admin/lakes/" + DevSeedIds.LAKE_ID + "/import")));
 
         assertThat(boundaryRepository.countByLakeIdAndProvider(DevSeedIds.LAKE_ID, "LIO")).isEqualTo(1);
         assertThat(waterwayRepository.countByLakeIdAndProviderAndType(DevSeedIds.LAKE_ID, "LIO", "SHORELINE")).isEqualTo(2);
@@ -176,8 +194,7 @@ class LakeIngestionIT extends AbstractIntegrationTest {
 
     @Test
     void failedRefreshKeepsLastSuccessfulCanonical() throws Exception {
-        mockMvc.perform(asDev(post("/api/v1/admin/lakes/" + DevSeedIds.LAKE_ID + "/import")))
-                .andExpect(status().isOk());
+        awaitLakeOpsJobResult(asDev(post("/api/v1/admin/lakes/" + DevSeedIds.LAKE_ID + "/import")));
         var first = datasetStatusRepository
                 .findByLakeIdAndDatasetTypeAndProvider(DevSeedIds.LAKE_ID, DatasetType.BATHYMETRY_POINT, "LIO")
                 .orElseThrow();
@@ -187,8 +204,7 @@ class LakeIngestionIT extends AbstractIntegrationTest {
 
         Thread.sleep(25);
         failBathymetryPoints.set(true);
-        mockMvc.perform(asDev(post("/api/v1/admin/lakes/" + DevSeedIds.LAKE_ID + "/import")))
-                .andExpect(status().isOk());
+        awaitLakeOpsJobResult(asDev(post("/api/v1/admin/lakes/" + DevSeedIds.LAKE_ID + "/import")));
 
         mockMvc.perform(asDev(get("/api/v1/admin/lakes/" + DevSeedIds.LAKE_ID + "/datasets")))
                 .andExpect(status().isOk())
@@ -211,8 +227,7 @@ class LakeIngestionIT extends AbstractIntegrationTest {
     @Test
     void oneDatasetFailedDoesNotBlockOthers() throws Exception {
         failShoreline.set(true);
-        mockMvc.perform(asDev(post("/api/v1/admin/lakes/" + DevSeedIds.LAKE_ID + "/import")))
-                .andExpect(status().isOk());
+        awaitLakeOpsJobResult(asDev(post("/api/v1/admin/lakes/" + DevSeedIds.LAKE_ID + "/import")));
 
         assertThat(statusOf(DatasetType.SHORELINE)).isEqualTo(DatasetStatusCode.FAILED);
         assertThat(statusOf(DatasetType.WETLAND)).isEqualTo(DatasetStatusCode.AVAILABLE);
@@ -223,8 +238,7 @@ class LakeIngestionIT extends AbstractIntegrationTest {
 
     @Test
     void accessPointOnlyImportReplacesCanonicalAndLeavesOtherDatasets() throws Exception {
-        mockMvc.perform(asDev(post("/api/v1/admin/lakes/" + DevSeedIds.LAKE_ID + "/import")))
-                .andExpect(status().isOk());
+        awaitLakeOpsJobResult(asDev(post("/api/v1/admin/lakes/" + DevSeedIds.LAKE_ID + "/import")));
         String shorelineVersion = waterwayRepository.findByLakeId(DevSeedIds.LAKE_ID).getFirst().getImportVersion();
         long fishCount = fishSpeciesRepository.countByLakeIdAndProvider(DevSeedIds.LAKE_ID, "LIO");
         accessPointRepository.save(PlanningFixtures.accessPoint(
@@ -232,10 +246,9 @@ class LakeIngestionIT extends AbstractIntegrationTest {
         assertThat(accessPointRepository.findByLakeId(DevSeedIds.LAKE_ID))
                 .anyMatch(row -> "Stale far ramp".equals(row.getName()));
 
-        mockMvc.perform(asDev(post("/api/v1/admin/lakes/" + DevSeedIds.LAKE_ID + "/import")
-                        .param("dataset", "ACCESS_POINT")))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.identityResolved", is(true)));
+        JsonNode accessImport = awaitLakeOpsJobResult(asDev(post("/api/v1/admin/lakes/" + DevSeedIds.LAKE_ID + "/import")
+                        .param("dataset", "ACCESS_POINT")));
+        assertThat(accessImport.path("identityResolved").asBoolean()).isTrue();
 
         var accessPoints = accessPointRepository.findByLakeId(DevSeedIds.LAKE_ID);
         assertThat(accessPoints).hasSize(1);
@@ -250,8 +263,7 @@ class LakeIngestionIT extends AbstractIntegrationTest {
 
     @Test
     void failedAccessPointRefreshKeepsLastGoodCanonical() throws Exception {
-        mockMvc.perform(asDev(post("/api/v1/admin/lakes/" + DevSeedIds.LAKE_ID + "/import")))
-                .andExpect(status().isOk());
+        awaitLakeOpsJobResult(asDev(post("/api/v1/admin/lakes/" + DevSeedIds.LAKE_ID + "/import")));
         var first = datasetStatusRepository
                 .findByLakeIdAndDatasetTypeAndProvider(DevSeedIds.LAKE_ID, DatasetType.ACCESS_POINT, "LIO")
                 .orElseThrow();
@@ -260,9 +272,8 @@ class LakeIngestionIT extends AbstractIntegrationTest {
 
         Thread.sleep(25);
         failAccessPoints.set(true);
-        mockMvc.perform(asDev(post("/api/v1/admin/lakes/" + DevSeedIds.LAKE_ID + "/import")
-                        .param("dataset", "ACCESS_POINT")))
-                .andExpect(status().isOk());
+        awaitLakeOpsJobResult(asDev(post("/api/v1/admin/lakes/" + DevSeedIds.LAKE_ID + "/import")
+                        .param("dataset", "ACCESS_POINT")));
 
         assertThat(statusOf(DatasetType.ACCESS_POINT)).isEqualTo(DatasetStatusCode.FAILED);
         var second = datasetStatusRepository
@@ -283,9 +294,8 @@ class LakeIngestionIT extends AbstractIntegrationTest {
         for (UUID lakeId : List.of(
                 DevSeedIds.LAKE_ID, DevSeedIds.RICE_LAKE_ID, DevSeedIds.SCUGOG_LAKE_ID, DevSeedIds.SIMCOE_LAKE_ID
         )) {
-            mockMvc.perform(asDev(post("/api/v1/admin/lakes/" + lakeId + "/import")))
-                    .andExpect(status().isOk())
-                    .andExpect(jsonPath("$.identityResolved", is(true)));
+            JsonNode imported = awaitLakeOpsJobResult(asDev(post("/api/v1/admin/lakes/" + lakeId + "/import")));
+            assertThat(imported.path("identityResolved").asBoolean()).isTrue();
         }
 
         assertThat(statusOf(DevSeedIds.LAKE_ID, DatasetType.BATHYMETRY_INDEX)).isEqualTo(DatasetStatusCode.AVAILABLE);
@@ -306,6 +316,52 @@ class LakeIngestionIT extends AbstractIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$", hasSize(4)))
                 .andExpect(jsonPath("$[0].identityResolved", is(true)));
+    }
+
+    @Test
+    void equivalentInFlightImportReturnsSameJobId() throws Exception {
+        LakeOpsJob queued = new LakeOpsJob();
+        queued.setLakeId(DevSeedIds.LAKE_ID);
+        queued.setKind(LakeOpsJobKind.IMPORT);
+        queued.setDedupeKey(LakeOpsDedupe.importKey(null));
+        queued.setStatus(LakeOpsJobStatus.QUEUED);
+        queued = lakeOpsJobRepository.saveAndFlush(queued);
+
+        String body = mockMvc.perform(asDev(post("/api/v1/admin/lakes/" + DevSeedIds.LAKE_ID + "/import")))
+                .andExpect(status().isAccepted())
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+        JsonNode response = objectMapper.readTree(body);
+        assertThat(response.path("jobId").asText()).isEqualTo(queued.getId().toString());
+        assertThat(response.path("status").asText()).isEqualTo("QUEUED");
+        verify(importJobRunner, times(0)).run(DevSeedIds.LAKE_ID);
+    }
+
+    @Test
+    void duplicateClaimDoesNotRunTheRunner() {
+        doReturn(new com.aifishing.lake.ingestion.admin.LakeImportSummaryResponse(
+                DevSeedIds.LAKE_ID,
+                "Head Lake",
+                true,
+                null,
+                1001L,
+                "Head Lake",
+                List.of()
+        )).when(importJobRunner).run(any(UUID.class));
+
+        LakeOpsJob job = new LakeOpsJob();
+        job.setLakeId(DevSeedIds.LAKE_ID);
+        job.setKind(LakeOpsJobKind.IMPORT);
+        job.setDedupeKey(LakeOpsDedupe.importKey(null));
+        job.setStatus(LakeOpsJobStatus.QUEUED);
+        job = lakeOpsJobRepository.saveAndFlush(job);
+
+        assertThat(lakeOpsJobExecutor.claimAndRun(job.getId())).isZero();
+        assertThat(lakeOpsJobExecutor.claimAndRun(job.getId())).isZero();
+        verify(importJobRunner, times(1)).run(DevSeedIds.LAKE_ID);
+        assertThat(lakeOpsJobRepository.findById(job.getId()).orElseThrow().getStatus())
+                .isEqualTo(LakeOpsJobStatus.SUCCEEDED);
     }
 
     private DatasetStatusCode statusOf(DatasetType type) {

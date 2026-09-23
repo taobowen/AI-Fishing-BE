@@ -1,8 +1,10 @@
 package com.aifishing.webquota.api;
 
+import com.aifishing.planning.api.GeneratePrefer;
 import com.aifishing.planning.dto.GeneratePlanRequest;
 import com.aifishing.planning.dto.GeneratePlanResponse;
 import com.aifishing.planning.service.TripPlanningService;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -23,11 +25,12 @@ public class WebPlanController {
     }
 
     @PostMapping("/{tripId}/plan")
-    public GeneratePlanResponse generate(
+    public ResponseEntity<GeneratePlanResponse> generate(
             @PathVariable UUID tripId,
             @RequestBody(required = false) GeneratePlanRequest request,
-            @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey
+            @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
+            @RequestHeader(value = "Prefer", required = false) String prefer
     ) {
-        return planningService.generate(tripId, request, idempotencyKey);
+        return planningService.generateMaybeAsync(tripId, request, idempotencyKey, GeneratePrefer.respondAsync(prefer));
     }
 }

@@ -82,7 +82,7 @@ class StrategyIT extends AbstractIntegrationTest {
 
     @BeforeEach
     void stubWeatherAndReasoner() {
-        when(weatherProvider.forecast(anyDouble(), anyDouble(), any(), any(), any(), any()))
+        when(weatherProvider.forecast(anyDouble(), anyDouble(), any(), any(), any(), any(), any()))
                 .thenReturn(new WeatherContext(
                         WeatherAvailability.FORECAST_AVAILABLE,
                         Instant.parse("2026-09-02T16:00:00Z"),
@@ -148,7 +148,7 @@ class StrategyIT extends AbstractIntegrationTest {
         mockMvc.perform(asDev(post("/api/v1/admin/trips/" + tripId + "/strategy")))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status", is("COMPLETED")));
-        verify(weatherProvider, times(1)).forecast(anyDouble(), anyDouble(), any(), any(), any(), any());
+        verify(weatherProvider, times(1)).forecast(anyDouble(), anyDouble(), any(), any(), any(), any(), any());
     }
 
     @Test
