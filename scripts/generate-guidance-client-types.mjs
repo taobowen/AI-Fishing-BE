@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { compile } from 'json-schema-to-typescript';
 import { createHash } from 'node:crypto';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { access, mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -52,6 +52,14 @@ const digest = createHash('sha256').update(generated).digest('hex');
 
 let drifted = false;
 for (const output of outputs) {
+  const clientRoot = output.includes(`${path.sep}AI-Fishing-FE${path.sep}`)
+    ? path.join(workspaceRoot, 'AI-Fishing-FE')
+    : path.join(workspaceRoot, 'AI-Fishing-WEB');
+  const clientCheckedOut = await access(clientRoot).then(() => true).catch(() => false);
+  if (!clientCheckedOut) {
+    console.log(`skip ${output} (client repo not checked out)`);
+    continue;
+  }
   const previous = await readFile(output, 'utf8').catch(() => null);
   if (check) {
     if (previous !== generated) {
