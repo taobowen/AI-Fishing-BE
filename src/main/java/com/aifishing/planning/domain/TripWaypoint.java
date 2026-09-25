@@ -1,6 +1,7 @@
 package com.aifishing.planning.domain;
 
 import com.aifishing.lake.processing.dto.FeatureType;
+import com.aifishing.common.enums.CandidateSource;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -54,6 +55,10 @@ public class TripWaypoint {
 
     @Column(name = "planned_dwell_minutes")
     private Integer plannedDwellMinutes;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "candidate_source", nullable = false, length = 16)
+    private CandidateSource candidateSource = CandidateSource.AI;
 
     @Enumerated(EnumType.STRING)
     @Column(name = "feature_type")
@@ -261,6 +266,14 @@ public class TripWaypoint {
 
     public void setPlannedDwellMinutes(Integer plannedDwellMinutes) {
         this.plannedDwellMinutes = plannedDwellMinutes;
+    }
+
+    public CandidateSource getCandidateSource() {
+        return CandidateSource.orAi(candidateSource);
+    }
+
+    public void setCandidateSource(CandidateSource candidateSource) {
+        this.candidateSource = CandidateSource.orAi(candidateSource);
     }
 
     public FeatureType getFeatureType() {

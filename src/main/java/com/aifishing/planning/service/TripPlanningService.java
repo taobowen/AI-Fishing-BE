@@ -2,6 +2,7 @@ package com.aifishing.planning.service;
 
 import com.aifishing.auth.ClientIdentity;
 import com.aifishing.auth.CurrentUser;
+import com.aifishing.common.enums.CandidateSource;
 import com.aifishing.common.enums.ClientChannel;
 import com.aifishing.boat.capability.BoatCapabilityResolver;
 import com.aifishing.boat.capability.EffectiveBoatCapability;
@@ -11,6 +12,7 @@ import com.aifishing.boat.domain.Boat;
 import com.aifishing.boat.repo.BoatRepository;
 import com.aifishing.common.enums.FishingMode;
 import com.aifishing.common.enums.GearType;
+import com.aifishing.common.enums.PlanningMode;
 import com.aifishing.common.enums.TripPlanStatus;
 import com.aifishing.common.exception.BadRequestException;
 import com.aifishing.common.exception.NotFoundException;
@@ -41,12 +43,14 @@ import com.aifishing.planning.candidate.CandidateSpot;
 import com.aifishing.planning.candidate.MacroCandidateShortlist;
 import com.aifishing.planning.candidate.LakePlanningGeometry;
 import com.aifishing.planning.candidate.LakePlanningGeometryLoader;
+import com.aifishing.planning.candidate.PlanningCandidatePool;
 import com.aifishing.planning.domain.PlanningRun;
 import com.aifishing.planning.domain.PlanningRunStatus;
 import com.aifishing.planning.domain.TripPlan;
 import com.aifishing.planning.domain.TripWaypoint;
 import com.aifishing.planning.dto.GeneratePlanRequest;
 import com.aifishing.planning.dto.GeneratePlanResponse;
+import com.aifishing.planning.dto.PlanningBalanceResponse;
 import com.aifishing.planning.dto.PlanningRunResponse;
 import com.aifishing.planning.dto.PlanningRunSummaryResponse;
 import com.aifishing.planning.dto.TripPlanMapDataResponse;
@@ -65,10 +69,13 @@ import com.aifishing.planning.ranking.SpotRankingService;
 import com.aifishing.planning.ranking.SpotScore;
 import com.aifishing.planning.repo.PlanningRunRepository;
 import com.aifishing.planning.repo.TripPlanRepository;
+import com.aifishing.planning.repo.TripPlanningInputSnapshotRepository;
 import com.aifishing.planning.repo.TripWaypointRepository;
 import com.aifishing.planning.route.AccessPointSelector;
 import com.aifishing.planning.route.AccessResolution;
 import com.aifishing.planning.route.PlannedStop;
+import com.aifishing.planning.route.RequiredPointConstraintValidator;
+import com.aifishing.planning.route.RoutePlanConstraints;
 import com.aifishing.planning.route.RoutePlanner;
 import com.aifishing.planning.route.TripLaunchResolver;
 import com.aifishing.planning.spatial.GenerateProfiler;
@@ -172,6 +179,10 @@ public class TripPlanningService {
     private final SnapshotWaterPathService snapshotWaterPathService;
     private final ClientIdentity clientIdentity;
     private final WebPlanQuotaService webPlanQuotaService;
+    private final TripPlanningInputSnapshotService inputSnapshotService;
+    private final TripPlanningInputSnapshotRepository inputSnapshotRepository;
+    private final PlanningCandidatePool planningCandidatePool;
+    private final RequiredPointConstraintValidator requiredPointConstraintValidator;
     private final Executor planGenerateExecutor;
 
     public TripPlanningService(
@@ -218,6 +229,10 @@ public class TripPlanningService {
             SnapshotWaterPathService snapshotWaterPathService,
             ClientIdentity clientIdentity,
             WebPlanQuotaService webPlanQuotaService,
+            TripPlanningInputSnapshotService inputSnapshotService,
+            TripPlanningInputSnapshotRepository inputSnapshotRepository,
+            PlanningCandidatePool planningCandidatePool,
+            RequiredPointConstraintValidator requiredPointConstraintValidator,
             @Qualifier("planGenerateExecutor") Executor planGenerateExecutor
     ) {
         this.currentUser = currentUser;
@@ -262,6 +277,10 @@ public class TripPlanningService {
         this.snapshotWaterPathService = snapshotWaterPathService;
         this.clientIdentity = clientIdentity;
         this.webPlanQuotaService = webPlanQuotaService;
+        this.inputSnapshotService = inputSnapshotService;
+        this.inputSnapshotRepository = inputSnapshotRepository;
+        this.planningCandidatePool = planningCandidatePool;
+        this.requiredPointConstraintValidator = requiredPointConstraintValidator;
         this.planGenerateExecutor = planGenerateExecutor;
     }
 
@@ -362,6 +381,9 @@ public class TripPlanningService {
         Trip trip = tripRepository.findById(tripId).orElseThrow(() -> new NotFoundException("Trip not found"));
         PlanningRun running = planningRunRepository.findById(started.running().getId())
                 .orElseThrow(() -> new NotFoundException("Planning run not found"));
+        // Freeze live template + required points for this run. Later template edits do not change history.
+        inputSnapshotService.freezeForRun(trip, running.getId());
+        PlanningMode planningMode = PlanningMode.orAi(trip.getPlanningMode());
         if (running.getStrategyRunId() == null) {
             throw new NotFoundException("Strategy run not found");
         }
@@ -389,6 +411,7 @@ public class TripPlanningService {
             inputSnapshot.put("featurePipeline", strategyRun.getFeaturePipeline().name());
             inputSnapshot.put("featureAnalysisVersion", strategyRun.getFeatureAnalysisVersion());
             inputSnapshot.put("fishingMode", trip.getFishingMode().name());
+            inputSnapshot.put("planningMode", planningMode.name());
             inputSnapshot.put("snapshotFeatureCount", snapshotCount);
 
             if (snapshotCount == 0) {
@@ -470,19 +493,31 @@ public class TripPlanningService {
             if (generated.usedDepthFallback()) {
                 warnings.add("DEPTH_FALLBACK");
             }
-            List<CandidateSpot> spatialSpots = macroCandidateShortlist.attachSnapshotMembership(
+            List<CandidateSpot> aiSpots = macroCandidateShortlist.attachSnapshotMembership(
                     generated.spots(), context);
+            PlanningCandidatePool.Result pool = planningCandidatePool.build(
+                    planningMode, aiSpots, context, running.getId());
+            for (String warning : pool.warnings()) {
+                if (!warnings.contains(warning)) {
+                    warnings.add(warning);
+                }
+            }
+            List<CandidateSpot> requiredConstraints = pool.requiredConstraints();
+            List<CandidateSpot> spatialSpots = pool.candidates();
 
             List<CandidateSpot> accepted;
             if (trip.getFishingMode() == FishingMode.BOAT) {
                 List<CandidateSpot> independent = applyFilters(
                         spatialSpots, context, rejections, warnings, launchIndependentFilters);
+                // Required Points are not in the optional pool; include them so AUTO launch
+                // still has geography when the mode pool is template/required-only.
+                List<CandidateSpot> launchCandidates = withRequiredForLaunch(independent, requiredConstraints);
                 TripLaunchResolver.Result resolved = tripLaunchResolver.resolveBoat(
                         trip,
                         request == null ? null : request.accessPointId(),
                         geometry,
                         context,
-                        independent
+                        launchCandidates
                 );
                 if (resolved.failed()) {
                     return fail(running, inputSnapshot, rankingConfig, rejections, warnings, resolved.errorCode(), trip.getUserId(), key);
@@ -500,13 +535,29 @@ public class TripPlanningService {
             } else {
                 accepted = applyFilters(spatialSpots, context, rejections, warnings, filters);
             }
-            if (accepted.isEmpty()) {
-                accepted = nearestLaunchReachable(
-                        generated.allTargets(),
-                        context,
+            try {
+                requiredPointConstraintValidator.validate(requiredConstraints, context);
+            } catch (RequiredPointConstraintValidator.RequiredPointInfeasibleException ex) {
+                return fail(
+                        running,
+                        inputSnapshot,
+                        rankingConfig,
+                        rejections,
                         warnings,
-                        properties.getCandidates().getMaxUnassignedAtomics());
-                accepted = macroCandidateShortlist.attachSnapshotMembership(accepted, context);
+                        ex.errorCode() + ":" + ex.pointReason(),
+                        trip.getUserId(),
+                        key);
+            }
+            if (accepted.isEmpty() && requiredConstraints.isEmpty()) {
+                if (planningMode == PlanningMode.AI) {
+                    accepted = nearestLaunchReachable(
+                            generated.allTargets(),
+                            context,
+                            warnings,
+                            properties.getCandidates().getMaxUnassignedAtomics());
+                    accepted = macroCandidateShortlist.attachSnapshotMembership(accepted, context);
+                    accepted = tagSource(accepted, CandidateSource.AI);
+                }
                 if (accepted.isEmpty()) {
                     return fail(running, inputSnapshot, rankingConfig, rejections, warnings, "NO_CANDIDATES", trip.getUserId(), key);
                 }
@@ -515,43 +566,77 @@ public class TripPlanningService {
                 }
             }
             accepted = macroCandidateShortlist.select(accepted, context);
+            accepted = forceIncludeRequired(accepted, requiredConstraints);
 
             profiler.start(GenerateProfiler.DYNAMIC_SCORING);
             List<RankedCandidate> ranked = rank(accepted, context);
             profiler.end(GenerateProfiler.DYNAMIC_SCORING);
             ranked = spatialPlanningFacade.attachZones(ranked, context);
-            RoutePlanner.RouteResult route = routePlanner.plan(ranked, context);
+            RoutePlanConstraints routeConstraints = RoutePlanConstraints.of(requiredConstraints, planningMode);
+            RoutePlanner.RouteResult route = routePlanner.plan(ranked, context, routeConstraints);
             if (warnings.contains("WEATHER_UNSAFE")) {
                 flushZoneWaterPaths(context);
                 return fail(running, inputSnapshot, rankingConfig, rejections, warnings, "WEATHER_UNSAFE", trip.getUserId(), key);
+            }
+            if (route.hardConstraintFailure() != null) {
+                flushZoneWaterPaths(context);
+                return fail(
+                        running,
+                        inputSnapshot,
+                        rankingConfig,
+                        rejections,
+                        warnings,
+                        route.hardConstraintFailure(),
+                        trip.getUserId(),
+                        key);
             }
             if (route.usedGlobalFallback()) {
                 warnings.add("WINDOW_FALLBACK_GLOBAL");
             }
             List<PlannedStop> stops = route.stops();
             if (stops.isEmpty()) {
-                List<CandidateSpot> nearer = nearestLaunchReachable(
-                        generated.allTargets(), context, warnings, properties.getCandidates().getMaxUnassignedAtomics());
-                nearer = macroCandidateShortlist.attachSnapshotMembership(nearer, context);
-                if (!nearer.isEmpty()) {
-                    accepted = macroCandidateShortlist.select(nearer, context);
-                    profiler.start(GenerateProfiler.DYNAMIC_SCORING);
-                    ranked = rank(accepted, context);
-                    profiler.end(GenerateProfiler.DYNAMIC_SCORING);
-                    ranked = spatialPlanningFacade.attachZones(ranked, context);
-                    route = routePlanner.plan(ranked, context);
-                    stops = route.stops();
-                    if (route.usedGlobalFallback() && !warnings.contains("WINDOW_FALLBACK_GLOBAL")) {
-                        warnings.add("WINDOW_FALLBACK_GLOBAL");
-                    }
-                    if (!stops.isEmpty() && !warnings.contains("LAUNCH_PROXIMITY_FALLBACK")) {
-                        warnings.add("LAUNCH_PROXIMITY_FALLBACK");
+                if (planningMode == PlanningMode.AI && requiredConstraints.isEmpty()) {
+                    List<CandidateSpot> nearer = nearestLaunchReachable(
+                            generated.allTargets(), context, warnings, properties.getCandidates().getMaxUnassignedAtomics());
+                    nearer = macroCandidateShortlist.attachSnapshotMembership(nearer, context);
+                    nearer = tagSource(nearer, CandidateSource.AI);
+                    if (!nearer.isEmpty()) {
+                        accepted = macroCandidateShortlist.select(nearer, context);
+                        profiler.start(GenerateProfiler.DYNAMIC_SCORING);
+                        ranked = rank(accepted, context);
+                        profiler.end(GenerateProfiler.DYNAMIC_SCORING);
+                        ranked = spatialPlanningFacade.attachZones(ranked, context);
+                        route = routePlanner.plan(ranked, context, routeConstraints);
+                        stops = route.stops();
+                        if (route.usedGlobalFallback() && !warnings.contains("WINDOW_FALLBACK_GLOBAL")) {
+                            warnings.add("WINDOW_FALLBACK_GLOBAL");
+                        }
+                        if (!stops.isEmpty() && !warnings.contains("LAUNCH_PROXIMITY_FALLBACK")) {
+                            warnings.add("LAUNCH_PROXIMITY_FALLBACK");
+                        }
                     }
                 }
                 if (stops.isEmpty()) {
                     flushZoneWaterPaths(context);
-                    return fail(running, inputSnapshot, rankingConfig, rejections, warnings, "NO_CANDIDATES", trip.getUserId(), key);
+                    String code = requiredConstraints.isEmpty()
+                            ? "NO_CANDIDATES"
+                            : RoutePlanConstraints.REQUIRED_SET_INFEASIBLE;
+                    return fail(running, inputSnapshot, rankingConfig, rejections, warnings, code, trip.getUserId(), key);
                 }
+            }
+            if (!RoutePlanConstraints.coversRequired(
+                    stops,
+                    routeConstraints.requiredOpportunityIds())) {
+                flushZoneWaterPaths(context);
+                return fail(
+                        running,
+                        inputSnapshot,
+                        rankingConfig,
+                        rejections,
+                        warnings,
+                        RoutePlanConstraints.REQUIRED_SET_INFEASIBLE,
+                        trip.getUserId(),
+                        key);
             }
             flushZoneWaterPaths(context);
             if (stops.size() <= 2) {
@@ -587,6 +672,9 @@ public class TripPlanningService {
             usage.put("candidateCount", generated.spots().size());
             usage.put("acceptedCount", accepted.size());
             usage.put("compressionSummary", profiler.compression().toMap());
+            PlanningBalanceResponse balance = PlanningBalance.forRun(
+                    running.getId(), waypoints, inputSnapshotRepository);
+            usage.put("planningBalance", PlanningBalance.toUsageMap(balance));
             profiler.end(GenerateProfiler.PLAN_PERSIST);
             usage.put("profiler", finishAndLogProfile(profiler, running, lake.getId(),
                     strategyRun.getFeaturePipeline().name(), snapshotId));
@@ -851,6 +939,64 @@ public class TripPlanningService {
         return applyFilters(spots, context, rejections, warnings, filters);
     }
 
+    private static List<CandidateSpot> withRequiredForLaunch(
+            List<CandidateSpot> independent,
+            List<CandidateSpot> required
+    ) {
+        if (required == null || required.isEmpty()) {
+            return independent == null ? List.of() : independent;
+        }
+        if (independent == null || independent.isEmpty()) {
+            return List.copyOf(required);
+        }
+        List<CandidateSpot> merged = new ArrayList<>(independent.size() + required.size());
+        merged.addAll(independent);
+        merged.addAll(required);
+        return merged;
+    }
+
+    private static List<CandidateSpot> forceIncludeRequired(
+            List<CandidateSpot> accepted,
+            List<CandidateSpot> required
+    ) {
+        if (required == null || required.isEmpty()) {
+            return accepted == null ? List.of() : accepted;
+        }
+        java.util.LinkedHashMap<UUID, CandidateSpot> byId = new java.util.LinkedHashMap<>();
+        if (accepted != null) {
+            for (CandidateSpot spot : accepted) {
+                UUID id = spot.planningIdentity();
+                if (id != null) {
+                    byId.putIfAbsent(id, spot);
+                } else {
+                    byId.put(UUID.randomUUID(), spot);
+                }
+            }
+        }
+        for (CandidateSpot spot : required) {
+            UUID id = spot.planningIdentity();
+            if (id == null) {
+                byId.put(UUID.randomUUID(), spot);
+            } else {
+                byId.putIfAbsent(id, spot);
+            }
+        }
+        return new ArrayList<>(byId.values());
+    }
+
+    private static List<CandidateSpot> tagSource(List<CandidateSpot> spots, CandidateSource source) {
+        if (spots == null || spots.isEmpty()) {
+            return List.of();
+        }
+        List<CandidateSpot> out = new ArrayList<>(spots.size());
+        for (CandidateSpot spot : spots) {
+            CandidateSpot copy = spot.copy();
+            copy.setCandidateSource(source);
+            out.add(copy);
+        }
+        return out;
+    }
+
     private List<CandidateSpot> applyFilters(
             List<CandidateSpot> spots,
             PlanningContext context,
@@ -1050,6 +1196,7 @@ public class TripPlanningService {
             TripWaypoint waypoint = new TripWaypoint();
             waypoint.setSequence(sequence++);
             waypoint.setLocation(spot.getLocation());
+            waypoint.setCandidateSource(spot.getCandidateSource());
             waypoint.setTargetKind(spot.getTargetKind());
             waypoint.setVisitKind(spot.getTargetKind());
             waypoint.setVisitScopeId(spot.getVisitScopeId());

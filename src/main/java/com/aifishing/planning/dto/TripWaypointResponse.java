@@ -1,5 +1,6 @@
 package com.aifishing.planning.dto;
 
+import com.aifishing.common.enums.CandidateSource;
 import com.aifishing.common.geo.GeoJsonGeometryDto;
 import com.aifishing.common.geo.GeoPointDto;
 import com.aifishing.lake.processing.dto.FeatureType;
@@ -55,6 +56,7 @@ public record TripWaypointResponse(
         Map<String, Object> environment,
         Map<String, Object> metadata,
         List<TripStopSubtargetResponse> subtargets,
-        TacticalRecommendation tactical
+        TacticalRecommendation tactical,
+        CandidateSource candidateSource
 ) {
 }

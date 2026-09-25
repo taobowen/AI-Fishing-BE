@@ -2,6 +2,7 @@ package com.aifishing.trip.api;
 
 import com.aifishing.common.enums.FishSpecies;
 import com.aifishing.common.enums.FishingMode;
+import com.aifishing.common.enums.PlanningMode;
 import com.aifishing.common.enums.TripStatus;
 import com.aifishing.launch.api.TripLaunchSelectionResponse;
 
@@ -27,6 +28,9 @@ public record TripResponse(
         Instant plannedEndAt,
         UUID boatId,
         FishingMode fishingMode,
+        PlanningMode planningMode,
+        UUID fishingTemplateId,
+        List<RequiredPointResponse> requiredPoints,
         TripStatus status,
         String notes,
         Instant createdAt,

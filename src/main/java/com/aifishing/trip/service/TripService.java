@@ -5,19 +5,29 @@ import com.aifishing.boat.domain.Boat;
 import com.aifishing.boat.repo.BoatRepository;
 import com.aifishing.common.enums.FishSpecies;
 import com.aifishing.common.enums.FishingMode;
+import com.aifishing.common.enums.PlanningMode;
 import com.aifishing.common.enums.TripStatus;
 import com.aifishing.common.exception.BadRequestException;
 import com.aifishing.common.exception.NotFoundException;
+import com.aifishing.common.geo.GeoMapper;
+import com.aifishing.fishingtemplate.domain.FishingTemplate;
+import com.aifishing.fishingtemplate.service.FishingTemplateService;
+import com.aifishing.fishingtemplate.service.TemplateGeometryLimits;
 import com.aifishing.lake.domain.Lake;
 import com.aifishing.lake.repo.LakeRepository;
 import com.aifishing.lake.service.LakeCardImageResolver;
 import com.aifishing.launch.TripLaunchSelectionService;
 import com.aifishing.planning.environment.TripClock;
 import com.aifishing.trip.api.CreateTripRequest;
+import com.aifishing.trip.api.RequiredPointRequest;
+import com.aifishing.trip.api.RequiredPointResponse;
 import com.aifishing.trip.api.TripResponse;
 import com.aifishing.trip.api.UpdateTripRequest;
 import com.aifishing.trip.domain.Trip;
+import com.aifishing.trip.domain.TripRequiredPoint;
 import com.aifishing.trip.repo.TripRepository;
+import com.aifishing.trip.repo.TripRequiredPointRepository;
+import org.locationtech.jts.geom.Point;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -34,27 +44,38 @@ import java.util.stream.Collectors;
 @Service
 public class TripService {
 
+    public static final String TEMPLATE_REQUIRED = "TEMPLATE_REQUIRED";
+
     private final TripRepository tripRepository;
+    private final TripRequiredPointRepository requiredPointRepository;
     private final LakeRepository lakeRepository;
     private final BoatRepository boatRepository;
     private final CurrentUser currentUser;
     private final TripLaunchSelectionService launchSelectionService;
     private final LakeCardImageResolver cardImageResolver;
+    private final FishingTemplateService fishingTemplateService;
+    private final GeoMapper geoMapper;
 
     public TripService(
             TripRepository tripRepository,
+            TripRequiredPointRepository requiredPointRepository,
             LakeRepository lakeRepository,
             BoatRepository boatRepository,
             CurrentUser currentUser,
             TripLaunchSelectionService launchSelectionService,
-            LakeCardImageResolver cardImageResolver
+            LakeCardImageResolver cardImageResolver,
+            FishingTemplateService fishingTemplateService,
+            GeoMapper geoMapper
     ) {
         this.tripRepository = tripRepository;
+        this.requiredPointRepository = requiredPointRepository;
         this.lakeRepository = lakeRepository;
         this.boatRepository = boatRepository;
         this.currentUser = currentUser;
         this.launchSelectionService = launchSelectionService;
         this.cardImageResolver = cardImageResolver;
+        this.fishingTemplateService = fishingTemplateService;
+        this.geoMapper = geoMapper;
     }
 
     @Transactional(readOnly = true)
@@ -88,6 +109,8 @@ public class TripService {
                 request.fishingEndTime()
         );
         UUID boatId = resolveBoatId(request.fishingMode(), request.boatId(), null);
+        PlanningMode planningMode = PlanningMode.orAi(request.planningMode());
+        UUID templateId = resolveTemplateId(planningMode, request.fishingTemplateId(), lake.getId());
 
         Trip trip = new Trip();
         trip.setUserId(currentUser.id());
@@ -100,9 +123,12 @@ public class TripService {
         trip.setFishingEndTime(request.fishingEndTime());
         trip.setBoatId(boatId);
         trip.setFishingMode(request.fishingMode());
+        trip.setPlanningMode(planningMode);
+        trip.setFishingTemplateId(templateId);
         trip.setStatus(request.status() == null ? TripStatus.DRAFT : request.status());
         trip.setNotes(request.notes());
         Trip saved = tripRepository.save(trip);
+        replaceRequiredPoints(saved.getId(), request.requiredPoints());
         launchSelectionService.apply(saved.getId(), saved.getFishingMode(), lake, request.launchSelection());
         return toResponse(saved);
     }
@@ -119,6 +145,22 @@ public class TripService {
         LocalTime start = request.fishingStartTime() != null ? request.fishingStartTime() : trip.getFishingStartTime();
         LocalTime end = request.fishingEndTime() != null ? request.fishingEndTime() : trip.getFishingEndTime();
         FishingMode mode = request.fishingMode() != null ? request.fishingMode() : trip.getFishingMode();
+        PlanningMode planningMode = request.planningMode() != null
+                ? PlanningMode.orAi(request.planningMode())
+                : PlanningMode.orAi(trip.getPlanningMode());
+        UUID requestedTemplateId = request.fishingTemplateId() != null
+                ? request.fishingTemplateId()
+                : trip.getFishingTemplateId();
+        if (request.planningMode() != null && !planningMode.requiresTemplate()) {
+            requestedTemplateId = null;
+        }
+        if (!lakeId.equals(previousLakeId)
+                && requestedTemplateId != null
+                && request.fishingTemplateId() == null) {
+            // Lake changed; drop a template that is no longer same-lake unless the client set a new one.
+            requestedTemplateId = null;
+        }
+        UUID templateId = resolveTemplateId(planningMode, requestedTemplateId, lake.getId());
 
         TripClock.Window window = validateLakeLocalTimes(lake, plannedDate, plannedEndDate, start, end);
         UUID boatId = resolveBoatId(mode, request.boatId(), trip.getBoatId());
@@ -136,6 +178,8 @@ public class TripService {
         trip.setFishingEndTime(end);
         trip.setBoatId(boatId);
         trip.setFishingMode(mode);
+        trip.setPlanningMode(planningMode);
+        trip.setFishingTemplateId(templateId);
         if (request.status() != null) {
             trip.setStatus(request.status());
         }
@@ -143,6 +187,9 @@ public class TripService {
             trip.setNotes(request.notes());
         }
         Trip saved = tripRepository.save(trip);
+        if (request.requiredPoints() != null) {
+            replaceRequiredPoints(saved.getId(), request.requiredPoints());
+        }
         if (request.launchSelection() != null) {
             launchSelectionService.apply(saved.getId(), saved.getFishingMode(), lake, request.launchSelection());
         } else if (mode == FishingMode.SHORE) {
@@ -151,6 +198,47 @@ public class TripService {
             launchSelectionService.revalidateForLake(saved.getId(), saved.getFishingMode(), lake);
         }
         return toResponse(saved);
+    }
+
+    private UUID resolveTemplateId(PlanningMode mode, UUID fishingTemplateId, UUID lakeId) {
+        PlanningMode resolved = PlanningMode.orAi(mode);
+        if (!resolved.requiresTemplate()) {
+            return null;
+        }
+        if (fishingTemplateId == null) {
+            throw new BadRequestException(TEMPLATE_REQUIRED,
+                    "HYBRID and CUSTOM modes require an owned fishing template for the trip lake");
+        }
+        FishingTemplate template = fishingTemplateService.requireOwnedSameLake(fishingTemplateId, lakeId);
+        return template.getId();
+    }
+
+    private void replaceRequiredPoints(UUID tripId, List<RequiredPointRequest> requests) {
+        requiredPointRepository.deleteByTripId(tripId);
+        requiredPointRepository.flush();
+        if (requests == null || requests.isEmpty()) {
+            return;
+        }
+        if (requests.size() > TemplateGeometryLimits.MAX_REQUIRED_POINTS) {
+            throw new BadRequestException(
+                    "A trip may have at most " + TemplateGeometryLimits.MAX_REQUIRED_POINTS + " required points"
+            );
+        }
+        List<TripRequiredPoint> rows = new ArrayList<>();
+        int index = 0;
+        for (RequiredPointRequest request : requests) {
+            Point location = geoMapper.toPoint(request.location());
+            if (location == null || location.isEmpty()) {
+                throw new BadRequestException("Required point location is invalid");
+            }
+            TripRequiredPoint point = new TripRequiredPoint();
+            point.setTripId(tripId);
+            point.setLocation(location);
+            point.setLabel(blankToNull(request.label()));
+            point.setSortOrder(index++);
+            rows.add(point);
+        }
+        requiredPointRepository.saveAll(rows);
     }
 
     private Trip requireOwned(UUID id) {
@@ -230,6 +318,9 @@ public class TripService {
                 window.endAt(),
                 trip.getBoatId(),
                 trip.getFishingMode(),
+                PlanningMode.orAi(trip.getPlanningMode()),
+                trip.getFishingTemplateId(),
+                requiredPointResponses(trip.getId()),
                 trip.getStatus(),
                 trip.getNotes(),
                 trip.getCreatedAt(),
@@ -238,11 +329,29 @@ public class TripService {
         );
     }
 
+    private List<RequiredPointResponse> requiredPointResponses(UUID tripId) {
+        return requiredPointRepository.findByTripIdOrderBySortOrderAscIdAsc(tripId).stream()
+                .map(point -> new RequiredPointResponse(
+                        point.getId(),
+                        geoMapper.toDto(point.getLocation()),
+                        point.getLabel(),
+                        point.getSortOrder()
+                ))
+                .toList();
+    }
+
     private static Lake requireMappedLake(Map<UUID, Lake> lakes, UUID lakeId) {
         Lake lake = lakes.get(lakeId);
         if (lake == null) {
             throw new NotFoundException("Lake not found");
         }
         return lake;
+    }
+
+    private static String blankToNull(String value) {
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+        return value.trim();
     }
 }

@@ -3,6 +3,7 @@ package com.aifishing.trip.domain;
 import com.aifishing.common.domain.AuditedEntity;
 import com.aifishing.common.enums.FishSpecies;
 import com.aifishing.common.enums.FishingMode;
+import com.aifishing.common.enums.PlanningMode;
 import com.aifishing.common.enums.TripStatus;
 import com.aifishing.common.jpa.LakeLocalTimeConverter;
 import jakarta.persistence.Column;
@@ -62,6 +63,13 @@ public class Trip extends AuditedEntity {
     @Enumerated(EnumType.STRING)
     @Column(name = "fishing_mode", nullable = false)
     private FishingMode fishingMode;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "planning_mode", nullable = false, length = 16)
+    private PlanningMode planningMode = PlanningMode.AI;
+
+    @Column(name = "fishing_template_id")
+    private UUID fishingTemplateId;
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
@@ -165,6 +173,22 @@ public class Trip extends AuditedEntity {
 
     public void setFishingMode(FishingMode fishingMode) {
         this.fishingMode = fishingMode;
+    }
+
+    public PlanningMode getPlanningMode() {
+        return planningMode;
+    }
+
+    public void setPlanningMode(PlanningMode planningMode) {
+        this.planningMode = PlanningMode.orAi(planningMode);
+    }
+
+    public UUID getFishingTemplateId() {
+        return fishingTemplateId;
+    }
+
+    public void setFishingTemplateId(UUID fishingTemplateId) {
+        this.fishingTemplateId = fishingTemplateId;
     }
 
     public TripStatus getStatus() {

@@ -37,6 +37,7 @@ public record TripPlanResponse(
         Instant generatedAt,
         TacticsStatus tacticsStatus,
         Boolean tacticsRequested,
-        Instant tacticsStartedAt
+        Instant tacticsStartedAt,
+        PlanningBalanceResponse planningBalance
 ) {
 }

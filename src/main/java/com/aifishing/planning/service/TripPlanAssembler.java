@@ -1,10 +1,12 @@
 package com.aifishing.planning.service;
 
+import com.aifishing.common.enums.CandidateSource;
 import com.aifishing.common.geo.GeoMapper;
 import com.aifishing.planning.domain.PlanningRun;
 import com.aifishing.planning.domain.TripPlan;
 import com.aifishing.planning.domain.TripWaypoint;
 import com.aifishing.planning.dto.GeneratePlanResponse;
+import com.aifishing.planning.dto.PlanningBalanceResponse;
 import com.aifishing.planning.dto.PlanningRunResponse;
 import com.aifishing.planning.dto.PlanningRunSummaryResponse;
 import com.aifishing.planning.dto.ScheduleEventResponse;
@@ -14,11 +16,13 @@ import com.aifishing.planning.dto.TripPlanResponse;
 import com.aifishing.planning.dto.TripStopSubtargetResponse;
 import com.aifishing.planning.dto.TripWaypointResponse;
 import com.aifishing.planning.ranking.ScoreBreakdown;
+import com.aifishing.planning.repo.TripPlanningInputSnapshotRepository;
 import com.aifishing.planning.spatial.domain.TripPlanTransitLeg;
 import com.aifishing.planning.spatial.domain.TripStopSubtarget;
 import com.aifishing.planning.spatial.repo.TripPlanTransitLegRepository;
 import com.aifishing.planning.spatial.repo.TripStopSubtargetRepository;
 import com.aifishing.planning.tactics.TacticalRecommendation;
+import com.aifishing.trip.repo.TripRepository;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.stereotype.Component;
 
@@ -37,17 +41,23 @@ public class TripPlanAssembler {
     private final ObjectMapper objectMapper;
     private final TripStopSubtargetRepository subtargetRepository;
     private final TripPlanTransitLegRepository transitLegRepository;
+    private final TripRepository tripRepository;
+    private final TripPlanningInputSnapshotRepository inputSnapshotRepository;
 
     public TripPlanAssembler(
             GeoMapper geoMapper,
             ObjectMapper objectMapper,
             TripStopSubtargetRepository subtargetRepository,
-            TripPlanTransitLegRepository transitLegRepository
+            TripPlanTransitLegRepository transitLegRepository,
+            TripRepository tripRepository,
+            TripPlanningInputSnapshotRepository inputSnapshotRepository
     ) {
         this.geoMapper = geoMapper;
         this.objectMapper = objectMapper;
         this.subtargetRepository = subtargetRepository;
         this.transitLegRepository = transitLegRepository;
+        this.tripRepository = tripRepository;
+        this.inputSnapshotRepository = inputSnapshotRepository;
     }
 
     public GeneratePlanResponse toGenerateResponse(PlanningRun run, TripPlan plan, List<TripWaypoint> waypoints) {
@@ -90,8 +100,16 @@ public class TripPlanAssembler {
                 plan.getGeneratedAt(),
                 plan.getTacticsStatus(),
                 plan.isTacticsRequested(),
-                plan.getTacticsStartedAt()
+                plan.getTacticsStartedAt(),
+                toPlanningBalance(plan, waypoints)
         );
+    }
+
+    private PlanningBalanceResponse toPlanningBalance(TripPlan plan, List<TripWaypoint> waypoints) {
+        return PlanningBalance.forRun(
+                plan == null ? null : plan.getPlanningRunId(),
+                waypoints,
+                inputSnapshotRepository);
     }
 
     public TripPlanMapDataResponse toMapData(TripPlan plan, List<TripWaypoint> waypoints) {
@@ -243,7 +261,8 @@ public class TripPlanAssembler {
                 waypoint.getEnvironment(),
                 waypoint.getMetadata(),
                 subtargets,
-                toTactical(waypoint.getTactical())
+                toTactical(waypoint.getTactical()),
+                waypoint.getCandidateSource()
         );
     }
 

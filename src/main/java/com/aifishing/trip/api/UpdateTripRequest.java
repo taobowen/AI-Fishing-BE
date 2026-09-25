@@ -2,6 +2,7 @@ package com.aifishing.trip.api;
 
 import com.aifishing.common.enums.FishSpecies;
 import com.aifishing.common.enums.FishingMode;
+import com.aifishing.common.enums.PlanningMode;
 import com.aifishing.common.enums.TripStatus;
 import com.aifishing.common.jackson.FlexibleLocalTimeDeserializer;
 import com.aifishing.launch.api.TripLaunchSelectionRequest;
@@ -23,6 +24,9 @@ public record UpdateTripRequest(
         @JsonDeserialize(using = FlexibleLocalTimeDeserializer.class) LocalTime fishingEndTime,
         UUID boatId,
         FishingMode fishingMode,
+        PlanningMode planningMode,
+        UUID fishingTemplateId,
+        @Valid List<RequiredPointRequest> requiredPoints,
         TripStatus status,
         String notes,
         @Valid TripLaunchSelectionRequest launchSelection

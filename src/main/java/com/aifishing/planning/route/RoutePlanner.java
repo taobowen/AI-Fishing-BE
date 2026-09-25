@@ -128,6 +128,15 @@ public class RoutePlanner {
     }
 
     public RouteResult plan(List<RankedCandidate> ranked, PlanningContext context) {
+        return plan(ranked, context, RoutePlanConstraints.none());
+    }
+
+    public RouteResult plan(
+            List<RankedCandidate> ranked,
+            PlanningContext context,
+            RoutePlanConstraints constraints
+    ) {
+        RoutePlanConstraints effective = constraints == null ? RoutePlanConstraints.none() : constraints;
         DepthZeroDiagnostic.begin(ranked, context);
         BeamLayerProfile.begin(context.lake() == null ? null : String.valueOf(context.lake().getId()));
         PlanningProperties.Schedule schedule = context.properties().getSchedule();
@@ -165,8 +174,8 @@ public class RoutePlanner {
         BeamState best;
         try {
             best = params.mode() == SearchMode.ROLLING_HORIZON
-                    ? planRolling(visitOptions, context, weather, orientations, schedule, tripStart, tripEnd, returnBuffer, params, budget)
-                    : planFullRoute(visitOptions, context, weather, orientations, schedule, tripStart, tripEnd, returnBuffer, params, budget);
+                    ? planRolling(visitOptions, context, weather, orientations, schedule, tripStart, tripEnd, returnBuffer, params, budget, effective)
+                    : planFullRoute(visitOptions, context, weather, orientations, schedule, tripStart, tripEnd, returnBuffer, params, budget, effective);
             if (budget.reached()) {
                 if (!context.warnings().contains("SEARCH_BUDGET_REACHED")) {
                     context.warnings().add("SEARCH_BUDGET_REACHED");
@@ -196,7 +205,27 @@ public class RoutePlanner {
             BeamLayerProfile.flush();
         }
         if (best == null || best.stops.isEmpty()) {
-            return new RouteResult(List.of(), false, tripStart, tripStart, TravelEstimate.zero(), List.of(), 0, 0, 0, 0, 0);
+            String failure = effective.hasRequired()
+                    ? RoutePlanConstraints.REQUIRED_SET_INFEASIBLE
+                    : null;
+            return new RouteResult(
+                    List.of(), false, tripStart, tripStart, TravelEstimate.zero(), List.of(), 0, 0, 0, 0, 0, failure);
+        }
+        if (effective.hasRequired()
+                && !RoutePlanConstraints.coversRequired(best.stops, effective.requiredOpportunityIds())) {
+            return new RouteResult(
+                    List.of(),
+                    false,
+                    tripStart,
+                    tripStart,
+                    TravelEstimate.zero(),
+                    List.of(),
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    RoutePlanConstraints.REQUIRED_SET_INFEASIBLE);
         }
         return toResult(best, context, weather, tripStart, tripEnd, returnBuffer);
     }
@@ -211,7 +240,8 @@ public class RoutePlanner {
             Instant tripEnd,
             int returnBuffer,
             SearchParameters params,
-            SearchBudget budget
+            SearchBudget budget,
+            RoutePlanConstraints constraints
     ) {
         List<BeamState> beam = new ArrayList<>();
         beam.add(BeamState.initial(tripStart, context.accessKnown() ? context.routeStartPoint() : null));
@@ -289,7 +319,7 @@ public class RoutePlanner {
                     : BeamTerminationReason.BEAM_COMPLETED_NORMALLY);
         }
         completed.addAll(beam);
-        return pickBest(completed, params.minStops());
+        return pickBest(completed, params.minStops(), constraints, true);
         } finally {
             BeamLayerProfile.close(profile);
         }
@@ -305,7 +335,8 @@ public class RoutePlanner {
             Instant tripEnd,
             int returnBuffer,
             SearchParameters params,
-            SearchBudget budget
+            SearchBudget budget,
+            RoutePlanConstraints constraints
     ) {
         BeamState committed = BeamState.initial(tripStart, context.accessKnown() ? context.routeStartPoint() : null);
         List<BeamState> completed = new ArrayList<>();
@@ -393,7 +424,8 @@ public class RoutePlanner {
             }
             profileRound++;
             window.addAll(beam);
-            BeamState bestWindow = pickBest(window, params.minStops());
+            // Intermediate windows may not cover every Required Point yet; enforce only on final pick.
+            BeamState bestWindow = pickBest(window, params.minStops(), constraints, false);
             if (bestWindow == null) {
                 beamDiag().terminate(BeamTerminationReason.NO_SUCCESSORS);
                 break;
@@ -417,8 +449,16 @@ public class RoutePlanner {
         if (committed.stops.size() >= params.minStops()) {
             completed.add(committed);
         }
-        BeamState best = pickBest(completed, params.minStops());
-        return best == null ? committed : best;
+        BeamState best = pickBest(completed, params.minStops(), constraints, true);
+        if (best != null) {
+            return best;
+        }
+        if (constraints != null
+                && constraints.hasRequired()
+                && !RoutePlanConstraints.coversRequired(committed.stops, constraints.requiredOpportunityIds())) {
+            return null;
+        }
+        return committed;
         } finally {
             BeamLayerProfile.close(profile);
         }
@@ -1054,12 +1094,35 @@ public class RoutePlanner {
         }
     }
 
-    private BeamState pickBest(List<BeamState> completed, int minWaypoints) {
-        BeamState best = null;
+    /**
+     * @param enforceHardConstraints when true, drop routes missing Required Points and apply Hybrid
+     *        40–60 secondary preference. Intermediate rolling-horizon windows must pass false so
+     *        search can still commit prefixes before every required stop is visited.
+     */
+    private BeamState pickBest(
+            List<BeamState> completed,
+            int minWaypoints,
+            RoutePlanConstraints constraints,
+            boolean enforceHardConstraints
+    ) {
+        RoutePlanConstraints effective = constraints == null ? RoutePlanConstraints.none() : constraints;
+        List<BeamState> eligible = new ArrayList<>();
         for (BeamState state : completed) {
             if (state.stops.isEmpty()) {
                 continue;
             }
+            if (enforceHardConstraints
+                    && effective.hasRequired()
+                    && !RoutePlanConstraints.coversRequired(state.stops, effective.requiredOpportunityIds())) {
+                continue;
+            }
+            eligible.add(state);
+        }
+        if (eligible.isEmpty()) {
+            return null;
+        }
+        BeamState best = null;
+        for (BeamState state : eligible) {
             if (best == null) {
                 best = state;
                 continue;
@@ -1072,7 +1135,37 @@ public class RoutePlanner {
                 best = state;
             }
         }
-        return best;
+        if (!enforceHardConstraints
+                || best == null
+                || !effective.hybridBalanceEnabled()
+                || best.totalValue <= 0) {
+            return best;
+        }
+        double bestUtility = best.totalValue + best.futureBonus;
+        BeamState hybridBest = best;
+        double bestDistance = RoutePlanConstraints.hybridBalanceDistance(best.stops);
+        for (BeamState state : eligible) {
+            if (state.totalValue <= 0) {
+                continue;
+            }
+            boolean bestMeets = hybridBest.stops.size() >= minWaypoints;
+            boolean stateMeets = state.stops.size() >= minWaypoints;
+            if (bestMeets && !stateMeets) {
+                continue;
+            }
+            double utility = state.totalValue + state.futureBonus;
+            if (!RoutePlanConstraints.utilitiesReasonablyClose(utility, bestUtility)) {
+                continue;
+            }
+            double distance = RoutePlanConstraints.hybridBalanceDistance(state.stops);
+            if (distance + 1e-12 < bestDistance
+                    || (Math.abs(distance - bestDistance) <= 1e-12
+                    && BeamState.ORDER.compare(state, hybridBest) < 0)) {
+                hybridBest = state;
+                bestDistance = distance;
+            }
+        }
+        return hybridBest;
     }
 
     private RouteResult toResult(
@@ -1483,10 +1576,40 @@ public class RoutePlanner {
             int totalFishingMinutes,
             double totalTravelMinutes,
             int scheduleReserveMinutes,
-            double routeUtility
+            double routeUtility,
+            String hardConstraintFailure
     ) {
+        public RouteResult(
+                List<PlannedStop> stops,
+                boolean usedGlobalFallback,
+                Instant plannedLaunchDepartureAt,
+                Instant plannedReturnAt,
+                TravelEstimate returnTravel,
+                List<ScheduleWaitEvent> waitEvents,
+                int totalWaitMinutes,
+                int totalFishingMinutes,
+                double totalTravelMinutes,
+                int scheduleReserveMinutes,
+                double routeUtility
+        ) {
+            this(
+                    stops,
+                    usedGlobalFallback,
+                    plannedLaunchDepartureAt,
+                    plannedReturnAt,
+                    returnTravel,
+                    waitEvents,
+                    totalWaitMinutes,
+                    totalFishingMinutes,
+                    totalTravelMinutes,
+                    scheduleReserveMinutes,
+                    routeUtility,
+                    null
+            );
+        }
+
         public RouteResult(List<PlannedStop> stops, boolean usedGlobalFallback) {
-            this(stops, usedGlobalFallback, null, null, TravelEstimate.zero(), List.of(), 0, 0, 0, 0, 0);
+            this(stops, usedGlobalFallback, null, null, TravelEstimate.zero(), List.of(), 0, 0, 0, 0, 0, null);
         }
     }
 

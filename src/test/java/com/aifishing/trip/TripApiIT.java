@@ -269,6 +269,41 @@ class TripApiIT extends AbstractIntegrationTest {
                 .andExpect(jsonPath("$.code", is("VALIDATION_ERROR")));
     }
 
+    @Test
+    void createWithoutPlanningModeDefaultsToAi() throws Exception {
+        mockMvc.perform(asDev(post("/api/v1/trips")).content("""
+                        {
+                          "lakeId": "%s",
+                          "primaryTargetSpecies": "SMALLMOUTH_BASS",
+                          "plannedDate": "2026-09-12",
+                          "fishingStartTime": "06:00:00",
+                          "fishingEndTime": "15:00:00",
+                          "fishingMode": "SHORE"
+                        }
+                        """.formatted(DevSeedIds.LAKE_ID)))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.planningMode", is("AI")))
+                .andExpect(jsonPath("$.fishingTemplateId").doesNotExist())
+                .andExpect(jsonPath("$.requiredPoints", is(org.hamcrest.Matchers.empty())));
+    }
+
+    @Test
+    void hybridWithoutTemplateReturnsTemplateRequired() throws Exception {
+        mockMvc.perform(asDev(post("/api/v1/trips")).content("""
+                        {
+                          "lakeId": "%s",
+                          "primaryTargetSpecies": "SMALLMOUTH_BASS",
+                          "plannedDate": "2026-09-12",
+                          "fishingStartTime": "06:00:00",
+                          "fishingEndTime": "15:00:00",
+                          "fishingMode": "SHORE",
+                          "planningMode": "HYBRID"
+                        }
+                        """.formatted(DevSeedIds.LAKE_ID)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code", is("TEMPLATE_REQUIRED")));
+    }
+
     private UUID saveBoat(UUID userId) {
         Boat boat = new Boat();
         boat.setUserId(userId);

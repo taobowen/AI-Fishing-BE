@@ -1,5 +1,6 @@
 package com.aifishing.planning.candidate;
 
+import com.aifishing.common.enums.CandidateSource;
 import com.aifishing.common.enums.TechniqueType;
 import com.aifishing.lake.processing.dto.FeatureType;
 import com.aifishing.lake.processing.dto.Pipeline;
@@ -14,7 +15,9 @@ import org.locationtech.jts.geom.Point;
 
 import java.time.LocalTime;
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 
 public class CandidateSpot {
@@ -64,6 +67,9 @@ public class CandidateSpot {
     private PathTraversal traversal = PathTraversal.FORWARD;
     private List<SpatialUtility.Sample> staticSamples = List.of();
     private Geometry visitEnvelope;
+    private CandidateSource candidateSource = CandidateSource.AI;
+    /** Sources collapsed into this spot during precedence dedup; excludes the winning {@link #candidateSource}. */
+    private final Set<CandidateSource> underlyingSources = new LinkedHashSet<>();
 
     public UUID getFeatureId() {
         return featureId;
@@ -337,6 +343,11 @@ public class CandidateSpot {
         return featureId == null ? List.of() : List.of(featureId);
     }
 
+    /** JavaBean alias used by opportunity merge helpers. */
+    public List<UUID> getCoverageIds() {
+        return coverageIds();
+    }
+
     public void setCoverageIds(List<UUID> coverageIds) {
         this.coverageIds = coverageIds == null ? List.of() : List.copyOf(coverageIds);
     }
@@ -437,6 +448,33 @@ public class CandidateSpot {
         this.visitEnvelope = visitEnvelope;
     }
 
+    public CandidateSource getCandidateSource() {
+        return CandidateSource.orAi(candidateSource);
+    }
+
+    public void setCandidateSource(CandidateSource candidateSource) {
+        this.candidateSource = CandidateSource.orAi(candidateSource);
+    }
+
+    public List<CandidateSource> getUnderlyingSources() {
+        return List.copyOf(underlyingSources);
+    }
+
+    public void addUnderlyingSource(CandidateSource source) {
+        if (source != null) {
+            underlyingSources.add(source);
+        }
+    }
+
+    public void addUnderlyingSources(Iterable<CandidateSource> sources) {
+        if (sources == null) {
+            return;
+        }
+        for (CandidateSource source : sources) {
+            addUnderlyingSource(source);
+        }
+    }
+
     public UUID planningIdentity() {
         if (getTargetKind() == TargetKind.ZONE && visitScopeId != null) {
             return visitScopeId;
@@ -498,6 +536,8 @@ public class CandidateSpot {
         copy.setTraversal(traversal);
         copy.setStaticSamples(staticSamples);
         copy.setVisitEnvelope(visitEnvelope);
+        copy.setCandidateSource(candidateSource);
+        copy.addUnderlyingSources(underlyingSources);
         return copy;
     }
 }

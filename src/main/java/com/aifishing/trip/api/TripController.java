@@ -2,6 +2,7 @@ package com.aifishing.trip.api;
 
 import com.aifishing.common.enums.TripStatus;
 import com.aifishing.trip.service.PastTripQueryService;
+import com.aifishing.trip.service.RequiredPointReachabilityService;
 import com.aifishing.trip.service.TripService;
 import jakarta.validation.Valid;
 import org.springframework.format.annotation.DateTimeFormat;
@@ -27,10 +28,16 @@ public class TripController {
 
     private final TripService tripService;
     private final PastTripQueryService pastTripQueryService;
+    private final RequiredPointReachabilityService requiredPointReachabilityService;
 
-    public TripController(TripService tripService, PastTripQueryService pastTripQueryService) {
+    public TripController(
+            TripService tripService,
+            PastTripQueryService pastTripQueryService,
+            RequiredPointReachabilityService requiredPointReachabilityService
+    ) {
         this.tripService = tripService;
         this.pastTripQueryService = pastTripQueryService;
+        this.requiredPointReachabilityService = requiredPointReachabilityService;
     }
 
     @GetMapping
@@ -53,6 +60,13 @@ public class TripController {
     @ResponseStatus(HttpStatus.CREATED)
     public TripResponse create(@Valid @RequestBody CreateTripRequest request) {
         return tripService.create(request);
+    }
+
+    @PostMapping("/required-point-reachability")
+    public RequiredPointReachabilityResponse requiredPointReachability(
+            @Valid @RequestBody RequiredPointReachabilityRequest request
+    ) {
+        return requiredPointReachabilityService.estimate(request);
     }
 
     @GetMapping("/{id}")
