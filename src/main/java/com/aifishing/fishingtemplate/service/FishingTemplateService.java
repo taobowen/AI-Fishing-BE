@@ -11,12 +11,14 @@ import com.aifishing.fishingtemplate.api.FishingTemplateTargetResponse;
 import com.aifishing.fishingtemplate.api.UpdateFishingTemplateRequest;
 import com.aifishing.fishingtemplate.domain.FishingTemplate;
 import com.aifishing.fishingtemplate.domain.FishingTemplateTarget;
+import com.aifishing.fishingtemplate.domain.TemplateTargetKind;
 import com.aifishing.fishingtemplate.repo.FishingTemplateRepository;
 import com.aifishing.fishingtemplate.repo.FishingTemplateTargetRepository;
 import com.aifishing.lake.domain.Lake;
 import com.aifishing.lake.repo.LakeRepository;
 import com.aifishing.planning.candidate.LakePlanningGeometry;
 import com.aifishing.planning.candidate.LakePlanningGeometryLoader;
+import com.aifishing.planning.intent.IntentResolutionScheduler;
 import org.locationtech.jts.geom.Geometry;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -35,6 +37,7 @@ public class FishingTemplateService {
     private final TemplateGeometryValidator geometryValidator;
     private final GeoMapper geoMapper;
     private final CurrentUser currentUser;
+    private final IntentResolutionScheduler intentResolutionScheduler;
 
     public FishingTemplateService(
             FishingTemplateRepository templateRepository,
@@ -43,7 +46,8 @@ public class FishingTemplateService {
             LakePlanningGeometryLoader geometryLoader,
             TemplateGeometryValidator geometryValidator,
             GeoMapper geoMapper,
-            CurrentUser currentUser
+            CurrentUser currentUser,
+            IntentResolutionScheduler intentResolutionScheduler
     ) {
         this.templateRepository = templateRepository;
         this.targetRepository = targetRepository;
@@ -52,6 +56,7 @@ public class FishingTemplateService {
         this.geometryValidator = geometryValidator;
         this.geoMapper = geoMapper;
         this.currentUser = currentUser;
+        this.intentResolutionScheduler = intentResolutionScheduler;
     }
 
     @Transactional(readOnly = true)
@@ -144,6 +149,13 @@ public class FishingTemplateService {
             index++;
         }
         targetRepository.saveAll(rows);
+        List<UUID> resolvable = new ArrayList<>();
+        for (FishingTemplateTarget row : rows) {
+            if (row.getKind() == TemplateTargetKind.POINT || row.getKind() == TemplateTargetKind.PATH) {
+                resolvable.add(row.getId());
+            }
+        }
+        intentResolutionScheduler.afterTemplateTargetsCommitted(resolvable);
     }
 
     private FishingTemplate requireOwned(UUID id) {

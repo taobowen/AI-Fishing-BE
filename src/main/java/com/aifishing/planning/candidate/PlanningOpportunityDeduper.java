@@ -140,6 +140,12 @@ public class PlanningOpportunityDeduper {
         if (kept.getStrategyRationale() == null || kept.getStrategyRationale().isBlank()) {
             kept.setStrategyRationale(other.getStrategyRationale());
         }
+        if (kept.getOriginTemplateTargetId() == null) {
+            kept.setOriginTemplateTargetId(other.getOriginTemplateTargetId());
+        }
+        if (kept.getOriginRequiredPointId() == null) {
+            kept.setOriginRequiredPointId(other.getOriginRequiredPointId());
+        }
         other.getWarnings().forEach(kept::addWarning);
     }
 

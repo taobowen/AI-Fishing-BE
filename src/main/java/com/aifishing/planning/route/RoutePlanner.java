@@ -45,6 +45,7 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 @Component
@@ -212,7 +213,7 @@ public class RoutePlanner {
                     List.of(), false, tripStart, tripStart, TravelEstimate.zero(), List.of(), 0, 0, 0, 0, 0, failure);
         }
         if (effective.hasRequired()
-                && !RoutePlanConstraints.coversRequired(best.stops, effective.requiredOpportunityIds())) {
+                && !effective.coversAll(best.stops)) {
             return new RouteResult(
                     List.of(),
                     false,
@@ -284,7 +285,7 @@ public class RoutePlanner {
                     continue;
                 }
                 next.addAll(expand(
-                        state, visitOptions, context, weather, orientations, schedule, tripEnd, returnBuffer, budget, 0, allowNew));
+                        state, visitOptions, context, weather, orientations, schedule, tripEnd, returnBuffer, budget, 0, allowNew, constraints));
             }
             if (next.isEmpty()) {
                 finishProfileLayer(0, 0, 0);
@@ -299,11 +300,11 @@ public class RoutePlanner {
             beamDiag().reclassifyAccepted(BeamRejectReason.DOMINANCE_PRUNED, beforeDominance - next.size());
             long sort = BeamLayerProfile.open(BeamLayerProfile.Stage.SORT);
             next.sort(BeamState.ORDER);
-            int kept = next.size() <= width ? next.size() : width;
+            int kept = Math.min(next.size(), width);
             BeamLayerProfile.close(sort);
             BeamLayerProfile.noteSort(next.size(), kept);
             beamDiag().reclassifyAccepted(BeamRejectReason.BEAM_WIDTH_PRUNED, next.size() - kept);
-            beam = next.size() <= width ? next : new ArrayList<>(next.subList(0, width));
+            beam = trimBeam(next, width, constraints);
             finishProfileLayer(beforeDominance, next.size(), kept);
         }
         if (loopCompleted && !beamDiag().hasTermination()) {
@@ -387,7 +388,7 @@ public class RoutePlanner {
                         continue;
                     }
                     List<BeamState> kids = expand(
-                            state, visitOptions, context, weather, orientations, schedule, tripEnd, returnBuffer, budget, 0, allowNew);
+                            state, visitOptions, context, weather, orientations, schedule, tripEnd, returnBuffer, budget, 0, allowNew, constraints);
                     if (lastLayer) {
                         long future = BeamLayerProfile.open(BeamLayerProfile.Stage.SCORING);
                         try {
@@ -415,11 +416,11 @@ public class RoutePlanner {
                 next.sort(BeamState.ORDER);
                 int layerWidth = SearchParameterResolver.adaptiveWidth(
                         width, minBeam, maxBeam, n, d, horizon - depth, budget.remainingCount());
-                int kept = next.size() <= layerWidth ? next.size() : layerWidth;
+                int kept = Math.min(next.size(), layerWidth);
                 BeamLayerProfile.close(sort);
                 BeamLayerProfile.noteSort(next.size(), kept);
                 beamDiag().reclassifyAccepted(BeamRejectReason.BEAM_WIDTH_PRUNED, next.size() - kept);
-                beam = next.size() <= layerWidth ? next : new ArrayList<>(next.subList(0, layerWidth));
+                beam = trimBeam(next, layerWidth, constraints);
                 finishProfileLayer(beforeDominance, next.size(), kept);
             }
             profileRound++;
@@ -455,7 +456,7 @@ public class RoutePlanner {
         }
         if (constraints != null
                 && constraints.hasRequired()
-                && !RoutePlanConstraints.coversRequired(committed.stops, constraints.requiredOpportunityIds())) {
+                && !constraints.coversAll(committed.stops)) {
             return null;
         }
         return committed;
@@ -640,6 +641,35 @@ public class RoutePlanner {
             double futureBonus,
             boolean allowNewStops
     ) {
+        return expand(
+                state,
+                visitOptions,
+                context,
+                weather,
+                orientations,
+                schedule,
+                tripEnd,
+                returnBuffer,
+                budget,
+                futureBonus,
+                allowNewStops,
+                RoutePlanConstraints.none());
+    }
+
+    List<BeamState> expand(
+            BeamState state,
+            List<FishingVisitOption> visitOptions,
+            PlanningContext context,
+            TimeIndexedWeather weather,
+            Map<UUID, LocalOrientation> orientations,
+            PlanningProperties.Schedule schedule,
+            Instant tripEnd,
+            int returnBuffer,
+            SearchBudget budget,
+            double futureBonus,
+            boolean allowNewStops,
+            RoutePlanConstraints constraints
+    ) {
         List<Integer> waits = new ArrayList<>();
         waits.add(0);
         for (Integer option : schedule.getWaitOptionsMinutes()) {
@@ -664,6 +694,7 @@ public class RoutePlanner {
                 Point entry;
                 Point exit;
                 TravelEstimate travel;
+                boolean forceRequired = false;
                 try {
                 kind = visitKind(state, option, schedule);
                 if (kind == null) {
@@ -683,7 +714,8 @@ public class RoutePlanner {
                 identity = RouteOpportunityState.isZone(candidate.spot())
                         ? RouteOpportunityState.zoneIdentity(candidate.spot())
                         : RouteOpportunityState.atomicIdentity(candidate.spot());
-                if (!spacingOk(candidate, state.stops, identity, context.properties().getCandidates().getMinSpacingM())) {
+                forceRequired = uncoveredRequired(candidate, state, constraints);
+                if (!forceRequired && !spacingOk(candidate, state.stops, identity, context.properties().getCandidates().getMinSpacingM())) {
                     diag.reject(BeamRejectReason.SPACING);
                     continue;
                 }
@@ -820,7 +852,7 @@ public class RoutePlanner {
                         DepthZeroDiagnostic.score(
                                 candidate, kind, dwell, visit.utility(), travel, waitPenalty, atArrival, increment, state.totalValue);
                     }
-                    if (increment <= 0) {
+                    if (increment <= 0 && !forceRequired) {
                         GenerateProfiler.current().count("beamStatesPruned");
                         diag.recordNonPositiveIncrement(kind, candidate.spot().getTargetKind(), increment);
                         diag.reject(BeamRejectReason.NON_POSITIVE_INCREMENT);
@@ -1113,7 +1145,7 @@ public class RoutePlanner {
             }
             if (enforceHardConstraints
                     && effective.hasRequired()
-                    && !RoutePlanConstraints.coversRequired(state.stops, effective.requiredOpportunityIds())) {
+                    && !effective.coversAll(state.stops)) {
                 continue;
             }
             eligible.add(state);
@@ -1295,6 +1327,52 @@ public class RoutePlanner {
             }
         }
         return true;
+    }
+
+    /**
+     * Keep the highest-scoring prefix that covers the most required points, then fill
+     * the rest of the beam by score. Score order itself is unchanged.
+     */
+    private static List<BeamState> trimBeam(List<BeamState> sorted, int width, RoutePlanConstraints constraints) {
+        if (sorted.size() <= width) {
+            return sorted;
+        }
+        List<BeamState> kept = new ArrayList<>(width);
+        if (constraints != null && constraints.hasRequired()) {
+            BeamState progress = null;
+            int covered = 0;
+            for (BeamState state : sorted) {
+                int count = requiredCovered(state, constraints);
+                if (count > covered) {
+                    covered = count;
+                    progress = state;
+                }
+            }
+            if (progress != null) {
+                kept.add(progress);
+            }
+        }
+        for (BeamState state : sorted) {
+            if (kept.size() >= width) {
+                break;
+            }
+            if (!kept.contains(state)) {
+                kept.add(state);
+            }
+        }
+        return kept;
+    }
+
+    private static int requiredCovered(BeamState state, RoutePlanConstraints constraints) {
+        return constraints.coveredGroupCount(state.stops);
+    }
+
+    private static boolean uncoveredRequired(RankedCandidate candidate, BeamState state, RoutePlanConstraints constraints) {
+        if (candidate == null || constraints == null || !constraints.hasRequired()) {
+            return false;
+        }
+        UUID id = candidate.spot().planningIdentity();
+        return constraints.isUncoveredSatisfier(id, state.stops);
     }
 
     private boolean legTooLong(TravelEstimate travel, PlanningContext context) {

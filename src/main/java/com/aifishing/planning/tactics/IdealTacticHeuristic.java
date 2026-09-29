@@ -5,7 +5,7 @@ import com.aifishing.common.enums.LureFamily;
 import com.aifishing.common.enums.LureLengthBand;
 import com.aifishing.common.enums.LureWeightBand;
 import com.aifishing.common.enums.PresentationTechnique;
-import com.aifishing.common.enums.TechniqueType;
+import com.aifishing.lake.processing.dto.FeatureType;
 import com.aifishing.planning.service.PlanningContext;
 import com.aifishing.planning.spatial.TargetKind;
 import com.aifishing.strategy.weather.WeatherContext;
@@ -35,24 +35,39 @@ public class IdealTacticHeuristic {
         return new StopTacticalProfile(visit.visitId(), ideal, alternatives);
     }
 
-    private static LureFamily idealFamily(FishableVisit visit) {
-        TechniqueType technique = visit.techniques().isEmpty() ? TechniqueType.OTHER : visit.techniques().get(0);
-        return switch (technique) {
-            case NED_RIG -> LureFamily.NED_RIG;
-            case DROP_SHOT -> LureFamily.DROP_SHOT_BAIT;
-            case JERKBAIT -> LureFamily.JERKBAIT;
-            case JIG -> LureFamily.JIG;
-            case TUBE -> LureFamily.TUBE;
-            case SWIMBAIT -> LureFamily.PADDLETAIL;
-            case CRANKBAIT -> LureFamily.CRANKBAIT;
-            case SPINNERBAIT -> LureFamily.SPINNERBAIT;
-            case TOPWATER -> visit.representativeDepthM() != null && visit.representativeDepthM() <= 1.2
-                    ? LureFamily.FROG
-                    : LureFamily.TOPWATER;
-            case TEXAS_RIG -> LureFamily.TEXAS_RIG;
-            case TROLLING -> LureFamily.CRANKBAIT;
-            case LIVE_BAIT, OTHER -> LureFamily.PADDLETAIL;
-        };
+    static LureFamily idealFamily(FishableVisit visit) {
+        if (visit.pathLike() || visit.targetKind() == TargetKind.PATH || visit.targetKind() == TargetKind.SEGMENT) {
+            Double depth = depthM(visit);
+            return depth != null && depth >= 6 ? LureFamily.JIG : LureFamily.PADDLETAIL;
+        }
+        Double depth = depthM(visit);
+        FeatureType type = visit.featureType();
+        if (depth != null && depth <= 1.2) {
+            return LureFamily.TOPWATER;
+        }
+        if (type == FeatureType.BASIN || (depth != null && depth >= 8)) {
+            return LureFamily.DROP_SHOT_BAIT;
+        }
+        if (type == FeatureType.HUMP || (depth != null && depth >= 4)) {
+            return LureFamily.JIG;
+        }
+        if (type == FeatureType.DROP_OFF) {
+            return LureFamily.CRANKBAIT;
+        }
+        if (type == FeatureType.FLAT) {
+            return LureFamily.SPINNERBAIT;
+        }
+        return LureFamily.JERKBAIT;
+    }
+
+    private static Double depthM(FishableVisit visit) {
+        if (visit.representativeDepthM() != null) {
+            return visit.representativeDepthM();
+        }
+        if (visit.minDepthM() != null && visit.maxDepthM() != null) {
+            return (visit.minDepthM() + visit.maxDepthM()) / 2.0;
+        }
+        return visit.minDepthM() != null ? visit.minDepthM() : visit.maxDepthM();
     }
 
     private static List<LureFamily> alternativesFor(LureFamily ideal) {
@@ -91,7 +106,7 @@ public class IdealTacticHeuristic {
                 : null;
         String instructions = instructionsFor(family, presentation, visit, pathCue);
         String rationale = ideal
-                ? "Matches the window technique and structure depth for this stop."
+                ? "Matches this stop's structure and depth."
                 : "Fishing-valid alternative for the same species, structure, and conditions.";
         return new TacticProfile(
                 family,

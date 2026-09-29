@@ -56,6 +56,8 @@ public class CandidateSpot {
     private List<VisitPortal> portals = List.of();
     private List<UUID> coverageIds = List.of();
     private List<UUID> sourceFeatureIds = List.of();
+    private UUID originTemplateTargetId;
+    private UUID originRequiredPointId;
     private List<FeatureType> evidenceTypes = List.of();
     private List<CandidateSpot> zoneMembers = List.of();
     private UUID visitScopeId;
@@ -360,6 +362,22 @@ public class CandidateSpot {
         this.sourceFeatureIds = sourceFeatureIds == null ? List.of() : List.copyOf(sourceFeatureIds);
     }
 
+    public UUID getOriginTemplateTargetId() {
+        return originTemplateTargetId;
+    }
+
+    public void setOriginTemplateTargetId(UUID originTemplateTargetId) {
+        this.originTemplateTargetId = originTemplateTargetId;
+    }
+
+    public UUID getOriginRequiredPointId() {
+        return originRequiredPointId;
+    }
+
+    public void setOriginRequiredPointId(UUID originRequiredPointId) {
+        this.originRequiredPointId = originRequiredPointId;
+    }
+
     public List<FeatureType> getEvidenceTypes() {
         return evidenceTypes;
     }
@@ -521,6 +539,8 @@ public class CandidateSpot {
         copy.setPortals(portals);
         copy.setCoverageIds(coverageIds);
         copy.setSourceFeatureIds(sourceFeatureIds);
+        copy.setOriginTemplateTargetId(originTemplateTargetId);
+        copy.setOriginRequiredPointId(originRequiredPointId);
         copy.setEvidenceTypes(evidenceTypes);
         copy.setZoneMembers(zoneMembers);
         copy.setVisitScopeId(visitScopeId);

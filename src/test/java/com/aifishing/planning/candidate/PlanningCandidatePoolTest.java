@@ -9,6 +9,7 @@ import com.aifishing.planning.PlanningFixtures;
 import com.aifishing.planning.domain.PlanningInputTargetSource;
 import com.aifishing.planning.domain.TripPlanningInputSnapshot;
 import com.aifishing.planning.domain.TripPlanningInputTarget;
+import com.aifishing.planning.intent.IntentMatch;
 import com.aifishing.planning.route.RoutePlannerHarness;
 import com.aifishing.planning.service.PlanningContext;
 import com.aifishing.planning.spatial.SpatialSnapshotView;
@@ -45,7 +46,7 @@ class PlanningCandidatePoolTest {
     @BeforeEach
     void setUp() {
         loader = new FakeLoader();
-        pool = new DefaultPlanningCandidatePool(loader, new PlanningOpportunityDeduper());
+        pool = new DefaultPlanningCandidatePool(loader, new PlanningOpportunityDeduper(), (target, context) -> List.of());
         runId = UUID.randomUUID();
     }
 
@@ -141,6 +142,54 @@ class PlanningCandidatePoolTest {
                 UUID.nameUUIDFromBytes("ai-feat".getBytes()));
     }
 
+    @Test
+    void syntheticFallbackEmitsTheRawRequiredPin() {
+        UUID origin = UUID.randomUUID();
+        TripPlanningInputTarget pin = requiredPoint("pin", PlanningFixtures.HEAD_LNG, PlanningFixtures.HEAD_LAT);
+        pin.setOriginRequiredPointId(origin);
+        stubFrozen(List.of(pin));
+        pool = new DefaultPlanningCandidatePool(
+                loader,
+                new PlanningOpportunityDeduper(),
+                (target, context) -> List.of(IntentMatch.synthetic()));
+        PlanningCandidatePool.Result result = pool.build(
+                PlanningMode.AI, List.of(), contextWithSnapshot(List.of()), runId);
+        assertThat(result.requiredConstraints()).hasSize(1);
+        CandidateSpot spot = result.requiredConstraints().get(0);
+        assertThat(spot.getCandidateSource()).isEqualTo(CandidateSource.REQUIRED);
+        assertThat(spot.getOriginRequiredPointId()).isEqualTo(origin);
+        assertThat(spot.getLocation().getX()).isEqualTo(PlanningFixtures.HEAD_LNG);
+        assertThat(spot.getFishingTargetId()).isNotNull();
+    }
+
+    @Test
+    void sameFeatureDedupsToTheMatchedSource() {
+        UUID shared = UUID.randomUUID();
+        UUID origin = UUID.randomUUID();
+        LakeFishingTarget row = snapshotTarget(shared, PlanningFixtures.HEAD_LNG, PlanningFixtures.HEAD_LAT);
+        TripPlanningInputTarget pin = requiredPoint("pin", PlanningFixtures.HEAD_LNG, PlanningFixtures.HEAD_LAT);
+        pin.setOriginRequiredPointId(origin);
+        TripPlanningInputTarget template = templatePoint("tmpl", PlanningFixtures.HEAD_LNG + 0.01, PlanningFixtures.HEAD_LAT);
+        template.setOriginTemplateTargetId(UUID.randomUUID());
+        stubFrozen(List.of(template, pin));
+        CandidateSpot ai = aiSpot("ai", PlanningFixtures.HEAD_LNG, PlanningFixtures.HEAD_LAT);
+        ai.setFishingTargetId(shared);
+        ai.setFeatureId(shared);
+        pool = new DefaultPlanningCandidatePool(loader, new PlanningOpportunityDeduper(), (target, context) -> {
+            if (target.getSource() == PlanningInputTargetSource.REQUIRED_POINT) {
+                return List.of(new IntentMatch(shared, shared, 1, 8.0, null, false));
+            }
+            return List.of(new IntentMatch(shared, shared, 1, 8.0, null, false));
+        });
+        PlanningCandidatePool.Result result = pool.build(
+                PlanningMode.HYBRID, List.of(ai), contextWithSnapshot(List.of(row)), runId);
+        assertThat(result.requiredConstraints()).hasSize(1);
+        assertThat(result.requiredConstraints().get(0).getCandidateSource()).isEqualTo(CandidateSource.REQUIRED);
+        assertThat(result.requiredConstraints().get(0).getOriginRequiredPointId()).isEqualTo(origin);
+        assertThat(result.requiredConstraints().get(0).getUnderlyingSources()).contains(CandidateSource.AI, CandidateSource.TEMPLATE);
+        assertThat(result.candidates()).extracting(CandidateSpot::getFishingTargetId).doesNotContain(shared);
+    }
+
     private void stubFrozen(List<TripPlanningInputTarget> targets) {
         TripPlanningInputSnapshot snapshot = new TripPlanningInputSnapshot();
         snapshot.setId(UUID.randomUUID());
@@ -179,6 +228,17 @@ class PlanningCandidatePoolTest {
         spot.setPipeline(Pipeline.GIS);
         spot.setAnalysisVersion("plan-v1");
         return spot;
+    }
+
+    private static TripPlanningInputTarget requiredPoint(String name, double lng, double lat) {
+        TripPlanningInputTarget target = new TripPlanningInputTarget();
+        target.setId(UUID.nameUUIDFromBytes(name.getBytes()));
+        target.setSource(PlanningInputTargetSource.REQUIRED_POINT);
+        target.setKind(TemplateTargetKind.POINT);
+        target.setName(name);
+        target.setGeometry(RoutePlannerHarness.point(lng, lat));
+        target.setSortOrder(0);
+        return target;
     }
 
     private static TripPlanningInputTarget templatePoint(String name, double lng, double lat) {

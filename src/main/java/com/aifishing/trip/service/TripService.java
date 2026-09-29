@@ -18,6 +18,7 @@ import com.aifishing.lake.repo.LakeRepository;
 import com.aifishing.lake.service.LakeCardImageResolver;
 import com.aifishing.launch.TripLaunchSelectionService;
 import com.aifishing.planning.environment.TripClock;
+import com.aifishing.planning.intent.IntentResolutionScheduler;
 import com.aifishing.trip.api.CreateTripRequest;
 import com.aifishing.trip.api.RequiredPointRequest;
 import com.aifishing.trip.api.RequiredPointResponse;
@@ -55,6 +56,7 @@ public class TripService {
     private final LakeCardImageResolver cardImageResolver;
     private final FishingTemplateService fishingTemplateService;
     private final GeoMapper geoMapper;
+    private final IntentResolutionScheduler intentResolutionScheduler;
 
     public TripService(
             TripRepository tripRepository,
@@ -65,7 +67,8 @@ public class TripService {
             TripLaunchSelectionService launchSelectionService,
             LakeCardImageResolver cardImageResolver,
             FishingTemplateService fishingTemplateService,
-            GeoMapper geoMapper
+            GeoMapper geoMapper,
+            IntentResolutionScheduler intentResolutionScheduler
     ) {
         this.tripRepository = tripRepository;
         this.requiredPointRepository = requiredPointRepository;
@@ -76,6 +79,7 @@ public class TripService {
         this.cardImageResolver = cardImageResolver;
         this.fishingTemplateService = fishingTemplateService;
         this.geoMapper = geoMapper;
+        this.intentResolutionScheduler = intentResolutionScheduler;
     }
 
     @Transactional(readOnly = true)
@@ -239,6 +243,7 @@ public class TripService {
             rows.add(point);
         }
         requiredPointRepository.saveAll(rows);
+        intentResolutionScheduler.afterRequiredPointsCommitted(rows.stream().map(TripRequiredPoint::getId).toList());
     }
 
     private Trip requireOwned(UUID id) {

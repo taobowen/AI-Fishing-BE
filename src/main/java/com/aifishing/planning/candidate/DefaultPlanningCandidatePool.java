@@ -9,6 +9,8 @@ import com.aifishing.lake.processing.extract.GeoMetrics;
 import com.aifishing.planning.domain.PlanningInputTargetSource;
 import com.aifishing.planning.domain.TripPlanningInputSnapshot;
 import com.aifishing.planning.domain.TripPlanningInputTarget;
+import com.aifishing.planning.intent.IntentMatch;
+import com.aifishing.planning.intent.IntentMatchSource;
 import com.aifishing.planning.service.PlanningContext;
 import com.aifishing.planning.spatial.PathTraversal;
 import com.aifishing.planning.spatial.SpatialUtility;
@@ -21,7 +23,9 @@ import org.locationtech.jts.geom.Point;
 import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 /**
@@ -35,13 +39,16 @@ public class DefaultPlanningCandidatePool implements PlanningCandidatePool {
 
     private final PlanningInputTargetLoader inputLoader;
     private final PlanningOpportunityDeduper opportunityDeduper;
+    private final IntentMatchSource intentMatchSource;
 
     public DefaultPlanningCandidatePool(
             PlanningInputTargetLoader inputLoader,
-            PlanningOpportunityDeduper opportunityDeduper
+            PlanningOpportunityDeduper opportunityDeduper,
+            IntentMatchSource intentMatchSource
     ) {
         this.inputLoader = inputLoader;
         this.opportunityDeduper = opportunityDeduper;
+        this.intentMatchSource = intentMatchSource;
     }
 
     @Override
@@ -97,9 +104,16 @@ public class DefaultPlanningCandidatePool implements PlanningCandidatePool {
         int index = 0;
         for (TripPlanningInputTarget target : targets) {
             if (target.getSource() == PlanningInputTargetSource.REQUIRED_POINT) {
-                CandidateSpot spot = toRequiredPoint(target, context, index++);
-                if (spot != null) {
-                    required.add(spot);
+                List<CandidateSpot> resolved = resolvedSpots(target, context, CandidateSource.REQUIRED);
+                if (resolved.isEmpty()) {
+                    CandidateSpot spot = toRequiredPoint(target, context, index++);
+                    stampOrigin(spot, target);
+                    if (spot != null) {
+                        required.add(spot);
+                    }
+                } else {
+                    index += resolved.size();
+                    required.addAll(resolved);
                 }
                 continue;
             }
@@ -111,9 +125,16 @@ public class DefaultPlanningCandidatePool implements PlanningCandidatePool {
                 index += fromZone.size();
                 template.addAll(fromZone);
             } else {
-                CandidateSpot spot = toTemplateSpot(target, context, index++);
-                if (spot != null) {
-                    template.add(spot);
+                List<CandidateSpot> resolved = resolvedSpots(target, context, CandidateSource.TEMPLATE);
+                if (resolved.isEmpty()) {
+                    CandidateSpot spot = toTemplateSpot(target, context, index++);
+                    stampOrigin(spot, target);
+                    if (spot != null) {
+                        template.add(spot);
+                    }
+                } else {
+                    index += resolved.size();
+                    template.addAll(resolved);
                 }
             }
         }
@@ -226,8 +247,53 @@ public class DefaultPlanningCandidatePool implements PlanningCandidatePool {
         spot.setTargetKind(kind == null || kind == TargetKind.ZONE ? TargetKind.POINT : kind);
         spot.setClosedLoop(row.isClosedLoop());
         spot.setCandidateSource(CandidateSource.AI);
+        spot.setSourceFeatureIds(row.getSourceFeatureIds());
         stampStrategy(spot, context);
         return spot;
+    }
+
+    private List<CandidateSpot> resolvedSpots(
+            TripPlanningInputTarget target,
+            PlanningContext context,
+            CandidateSource source
+    ) {
+        List<IntentMatch> matches = intentMatchSource.matches(target, context);
+        if (matches.isEmpty() || matches.stream().allMatch(IntentMatch::syntheticFallback)) {
+            return List.of();
+        }
+        Map<UUID, com.aifishing.planning.spatial.domain.LakeFishingTarget> byId = new HashMap<>();
+        if (context.spatialSnapshot() != null) {
+            for (com.aifishing.planning.spatial.domain.LakeFishingTarget row : context.spatialSnapshot().targets()) {
+                byId.put(row.getId(), row);
+            }
+        }
+        List<CandidateSpot> spots = new ArrayList<>();
+        for (IntentMatch match : matches) {
+            if (match.syntheticFallback() || match.fishingTargetId() == null) {
+                continue;
+            }
+            com.aifishing.planning.spatial.domain.LakeFishingTarget row = byId.get(match.fishingTargetId());
+            if (row == null) {
+                continue;
+            }
+            CandidateSpot spot = snapshotRowToSpot(row, context);
+            spot.setCandidateSource(source);
+            if (match.featureId() != null) {
+                spot.setFeatureId(match.featureId());
+            }
+            spot.setStrategyWeight(source == CandidateSource.REQUIRED ? 0.75 : 0.55);
+            stampOrigin(spot, target);
+            spots.add(spot);
+        }
+        return spots;
+    }
+
+    private static void stampOrigin(CandidateSpot spot, TripPlanningInputTarget target) {
+        if (spot == null || target == null) {
+            return;
+        }
+        spot.setOriginTemplateTargetId(target.getOriginTemplateTargetId());
+        spot.setOriginRequiredPointId(target.getOriginRequiredPointId());
     }
 
     private CandidateSpot toTemplateSpot(

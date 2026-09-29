@@ -888,6 +888,14 @@ public class PlanningProperties {
         private double internalCruiseKmh = 6;
         /** Micros within this distance share one static-plan dwell when land does not separate them. */
         private double castingOpportunityMeters = 40;
+        /** Fuzzy envelope around a saved template point. Spatial cache only; not a beam weight. */
+        private double intentTemplatePointRadiusM = 60;
+        /** Corridor on each side of a saved template path. */
+        private double intentTemplatePathCorridorM = 40;
+        /** Fuzzy envelope around a required-point pin. */
+        private double intentRequiredPointRadiusM = 40;
+        private int intentMaxOpportunitiesPerIntent = 3;
+        private String intentMatchingVersion = "intent-match-v1";
         private int maxZonePortals = 4;
         private int maxPortalPairsPerZone = 8;
         private double sampleAlongM = 40;
@@ -1111,6 +1119,50 @@ public class PlanningProperties {
 
         public void setCastingOpportunityMeters(double castingOpportunityMeters) {
             this.castingOpportunityMeters = castingOpportunityMeters <= 0 ? 40 : castingOpportunityMeters;
+        }
+
+        public double getIntentTemplatePointRadiusM() {
+            return intentTemplatePointRadiusM;
+        }
+
+        public void setIntentTemplatePointRadiusM(double intentTemplatePointRadiusM) {
+            this.intentTemplatePointRadiusM = intentTemplatePointRadiusM <= 0 ? 60 : intentTemplatePointRadiusM;
+        }
+
+        public double getIntentTemplatePathCorridorM() {
+            return intentTemplatePathCorridorM;
+        }
+
+        public void setIntentTemplatePathCorridorM(double intentTemplatePathCorridorM) {
+            this.intentTemplatePathCorridorM = intentTemplatePathCorridorM <= 0 ? 40 : intentTemplatePathCorridorM;
+        }
+
+        public double getIntentRequiredPointRadiusM() {
+            return intentRequiredPointRadiusM;
+        }
+
+        public void setIntentRequiredPointRadiusM(double intentRequiredPointRadiusM) {
+            this.intentRequiredPointRadiusM = intentRequiredPointRadiusM <= 0 ? 40 : intentRequiredPointRadiusM;
+        }
+
+        public int getIntentMaxOpportunitiesPerIntent() {
+            return intentMaxOpportunitiesPerIntent;
+        }
+
+        public void setIntentMaxOpportunitiesPerIntent(int intentMaxOpportunitiesPerIntent) {
+            this.intentMaxOpportunitiesPerIntent = intentMaxOpportunitiesPerIntent <= 0 ? 3 : intentMaxOpportunitiesPerIntent;
+        }
+
+        public String getIntentMatchingVersion() {
+            return intentMatchingVersion == null || intentMatchingVersion.isBlank()
+                    ? "intent-match-v1"
+                    : intentMatchingVersion;
+        }
+
+        public void setIntentMatchingVersion(String intentMatchingVersion) {
+            this.intentMatchingVersion = intentMatchingVersion == null || intentMatchingVersion.isBlank()
+                    ? "intent-match-v1"
+                    : intentMatchingVersion.trim();
         }
 
         public int getMaxZonePortals() {

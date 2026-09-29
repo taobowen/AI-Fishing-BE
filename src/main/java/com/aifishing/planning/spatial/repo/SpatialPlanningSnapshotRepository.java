@@ -34,6 +34,14 @@ public interface SpatialPlanningSnapshotRepository extends JpaRepository<Spatial
             SpatialSnapshotStatus status
     );
 
+    List<SpatialPlanningSnapshot> findByLakeIdAndTargetDerivationVersionAndZoneBuilderVersionAndNavigationVersionAndStatusOrderByCreatedAtDesc(
+            UUID lakeId,
+            String targetDerivationVersion,
+            String zoneBuilderVersion,
+            String navigationVersion,
+            SpatialSnapshotStatus status
+    );
+
     List<SpatialPlanningSnapshot> findByLakeIdOrderByCreatedAtDesc(UUID lakeId);
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)

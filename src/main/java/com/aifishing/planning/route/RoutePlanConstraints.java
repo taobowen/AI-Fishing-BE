@@ -5,18 +5,22 @@ import com.aifishing.common.enums.PlanningMode;
 import com.aifishing.planning.candidate.CandidateSpot;
 
 import java.util.Collection;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 
 /**
  * Hard Required Point constraints and optional Hybrid secondary balance preference
  * for {@link RoutePlanner} selection. Score weights stay unchanged.
+ * A required point may be satisfied by any one identity in its group.
  */
 public record RoutePlanConstraints(
         Set<UUID> requiredOpportunityIds,
-        PlanningMode planningMode
+        PlanningMode planningMode,
+        Map<UUID, Set<UUID>> requiredGroups
 ) {
     public static final String REQUIRED_POINT_INFEASIBLE = "REQUIRED_POINT_INFEASIBLE";
     public static final String REQUIRED_SET_INFEASIBLE = "REQUIRED_SET_INFEASIBLE";
@@ -32,37 +36,107 @@ public record RoutePlanConstraints(
                 ? Set.of()
                 : Set.copyOf(requiredOpportunityIds);
         planningMode = PlanningMode.orAi(planningMode);
+        if (requiredGroups == null || requiredGroups.isEmpty()) {
+            Map<UUID, Set<UUID>> derived = new LinkedHashMap<>();
+            for (UUID id : requiredOpportunityIds) {
+                derived.put(id, Set.of(id));
+            }
+            requiredGroups = Map.copyOf(derived);
+        } else {
+            Map<UUID, Set<UUID>> copy = new LinkedHashMap<>();
+            requiredGroups.forEach((key, value) -> copy.put(key, value == null ? Set.of() : Set.copyOf(value)));
+            requiredGroups = Map.copyOf(copy);
+        }
     }
 
     public static RoutePlanConstraints none() {
-        return new RoutePlanConstraints(Set.of(), PlanningMode.AI);
+        return new RoutePlanConstraints(Set.of(), PlanningMode.AI, Map.of());
     }
 
     public static RoutePlanConstraints of(Collection<CandidateSpot> required, PlanningMode mode) {
         LinkedHashSet<UUID> ids = new LinkedHashSet<>();
+        Map<UUID, LinkedHashSet<UUID>> groups = new LinkedHashMap<>();
         if (required != null) {
             for (CandidateSpot spot : required) {
                 UUID id = spot == null ? null : spot.planningIdentity();
-                if (id != null) {
-                    ids.add(id);
+                if (id == null) {
+                    continue;
                 }
+                ids.add(id);
+                UUID key = spot.getOriginRequiredPointId() != null ? spot.getOriginRequiredPointId() : id;
+                groups.computeIfAbsent(key, ignored -> new LinkedHashSet<>()).add(id);
             }
         }
-        return new RoutePlanConstraints(ids, mode);
+        Map<UUID, Set<UUID>> frozen = new LinkedHashMap<>();
+        groups.forEach((key, value) -> frozen.put(key, Set.copyOf(value)));
+        return new RoutePlanConstraints(ids, mode, frozen);
     }
 
     public boolean hasRequired() {
-        return !requiredOpportunityIds.isEmpty();
+        return !requiredGroups.isEmpty();
     }
 
     public boolean hybridBalanceEnabled() {
         return planningMode == PlanningMode.HYBRID;
     }
 
+    public boolean coversAll(List<PlannedStop> stops) {
+        if (requiredGroups.isEmpty()) {
+            return true;
+        }
+        return coveredGroupCount(stops) == requiredGroups.size();
+    }
+
+    public int coveredGroupCount(List<PlannedStop> stops) {
+        Set<UUID> present = presentIds(stops);
+        int count = 0;
+        for (Set<UUID> group : requiredGroups.values()) {
+            boolean hit = false;
+            for (UUID id : group) {
+                if (present.contains(id)) {
+                    hit = true;
+                    break;
+                }
+            }
+            if (hit) {
+                count++;
+            }
+        }
+        return count;
+    }
+
+    /** True when this candidate can still satisfy a required group the route has not covered. */
+    public boolean isUncoveredSatisfier(UUID candidateId, List<PlannedStop> stops) {
+        if (candidateId == null) {
+            return false;
+        }
+        Set<UUID> present = presentIds(stops);
+        for (Set<UUID> group : requiredGroups.values()) {
+            if (!group.contains(candidateId)) {
+                continue;
+            }
+            boolean covered = false;
+            for (UUID id : group) {
+                if (present.contains(id)) {
+                    covered = true;
+                    break;
+                }
+            }
+            if (!covered) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     public static boolean coversRequired(List<PlannedStop> stops, Set<UUID> requiredIds) {
         if (requiredIds == null || requiredIds.isEmpty()) {
             return true;
         }
+        return presentIds(stops).containsAll(requiredIds);
+    }
+
+    private static Set<UUID> presentIds(List<PlannedStop> stops) {
         Set<UUID> present = new LinkedHashSet<>();
         if (stops != null) {
             for (PlannedStop stop : stops) {
@@ -76,7 +150,7 @@ public record RoutePlanConstraints(
                 }
             }
         }
-        return present.containsAll(requiredIds);
+        return present;
     }
 
     /**

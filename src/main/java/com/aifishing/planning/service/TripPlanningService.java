@@ -124,9 +124,11 @@ import java.util.concurrent.Executor;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.EnumMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 @Service
@@ -624,9 +626,7 @@ public class TripPlanningService {
                     return fail(running, inputSnapshot, rankingConfig, rejections, warnings, code, trip.getUserId(), key);
                 }
             }
-            if (!RoutePlanConstraints.coversRequired(
-                    stops,
-                    routeConstraints.requiredOpportunityIds())) {
+            if (!routeConstraints.coversAll(stops)) {
                 flushZoneWaterPaths(context);
                 return fail(
                         running,
@@ -1188,6 +1188,7 @@ public class TripPlanningService {
             Map<UUID, TacticalRecommendation> tacticsByVisit
     ) {
         List<TripWaypoint> waypoints = new ArrayList<>();
+        List<UUID> pendingLakeFeatureIds = new ArrayList<>();
         int sequence = 1;
         ZoneId zone = TripClock.zoneId(context);
         for (PlannedStop stop : stops) {
@@ -1242,12 +1243,7 @@ public class TripPlanningService {
             waypoint.setFeatureType(spot.getType());
             waypoint.setMinDepthM(decimal(spot.getMinDepthM()));
             waypoint.setMaxDepthM(decimal(spot.getMaxDepthM()));
-            if (spot.getTargetKind() == com.aifishing.planning.spatial.TargetKind.ZONE
-                    && !spot.getZoneMembers().isEmpty()) {
-                waypoint.setLakeFeatureId(spot.getZoneMembers().get(0).getFeatureId());
-            } else {
-                waypoint.setLakeFeatureId(spot.getFeatureId());
-            }
+            pendingLakeFeatureIds.add(rawLakeFeatureId(spot));
             waypoint.setRepresentativeDepthM(decimal(spot.getRepresentativeDepthM()));
             double persistedScore = stop.timeScore() != null && stop.timeScore().finalTimeAdjustedUtility() != null
                     ? stop.timeScore().finalTimeAdjustedUtility()
@@ -1255,13 +1251,6 @@ public class TripPlanningService {
             waypoint.setCandidateScore(BigDecimal.valueOf(clamp(persistedScore, 0, 1.5)).setScale(4, RoundingMode.HALF_UP));
             waypoint.setScoreBreakdown(objectMapper.convertValue(
                     stop.timeScore() == null ? score.breakdown() : stop.timeScore(), MAP));
-            waypoint.setRecommendedTechniques(spot.techniqueTypes().stream().map(Enum::name).toList());
-            if (waypoint.getRecommendedTechniques().isEmpty() && !spot.getZoneMembers().isEmpty()) {
-                waypoint.setRecommendedTechniques(spot.getZoneMembers().get(0).techniqueTypes().stream().map(Enum::name).toList());
-            }
-            if (!waypoint.getRecommendedTechniques().isEmpty()) {
-                waypoint.setRecommendedTechnique(waypoint.getRecommendedTechniques().get(0));
-            }
             waypoint.setReason(explanation(spot));
             waypoint.setWhyThisTime(stop.whyThisTime() == null ? List.of() : List.copyOf(stop.whyThisTime()));
             waypoint.setEnvironment(stop.environment());
@@ -1354,7 +1343,44 @@ public class TripPlanningService {
             }
             waypoints.add(waypoint);
         }
+        Set<UUID> existingLakeFeatures = existingLakeFeatureIds(pendingLakeFeatureIds);
+        for (int i = 0; i < waypoints.size(); i++) {
+            waypoints.get(i).setLakeFeatureId(lakeFeatureIdForPersist(pendingLakeFeatureIds.get(i), existingLakeFeatures));
+        }
         return waypoints;
+    }
+
+    /**
+     * Required and template spots use a planning identity that is not a {@code lake_features} row.
+     * Only ids that exist may be stored; the column has a foreign key.
+     */
+    static UUID rawLakeFeatureId(CandidateSpot spot) {
+        if (spot.getTargetKind() == com.aifishing.planning.spatial.TargetKind.ZONE
+                && !spot.getZoneMembers().isEmpty()) {
+            return spot.getZoneMembers().get(0).getFeatureId();
+        }
+        return spot.getFeatureId();
+    }
+
+    static UUID lakeFeatureIdForPersist(UUID rawId, Set<UUID> existingLakeFeatureIds) {
+        if (rawId == null || existingLakeFeatureIds == null || !existingLakeFeatureIds.contains(rawId)) {
+            return null;
+        }
+        return rawId;
+    }
+
+    private Set<UUID> existingLakeFeatureIds(List<UUID> rawIds) {
+        List<UUID> present = rawIds.stream().filter(java.util.Objects::nonNull).distinct().toList();
+        if (present.isEmpty()) {
+            return Set.of();
+        }
+        Set<UUID> found = new HashSet<>();
+        featureRepository.findAllById(present).forEach(feature -> {
+            if (feature.getId() != null) {
+                found.add(feature.getId());
+            }
+        });
+        return found;
     }
 
     private String explanation(CandidateSpot spot) {

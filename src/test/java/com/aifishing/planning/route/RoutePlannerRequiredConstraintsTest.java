@@ -47,6 +47,88 @@ class RoutePlannerRequiredConstraintsTest {
     }
 
     @Test
+    void weakRequiredPointSurvivesWhenStrongerStopsFillTheBeam() {
+        PlanningProperties properties = baseProperties();
+        properties.getSchedule().setMaxWaypoints(1);
+        properties.getSchedule().setMinWaypoints(1);
+        properties.getSearch().setMinBeamWidth(1);
+        properties.getSearch().setMaxBeamWidth(1);
+        properties.getSearch().setDefaultBeamWidth(1);
+        var context = RoutePlannerHarness.context(calm(), properties, RoutePlannerHarness.launch());
+        double lat = PlanningFixtures.HEAD_LAT;
+        double lng = PlanningFixtures.HEAD_LNG;
+        UUID requiredId = UUID.fromString("11111111-1111-1111-1111-111111111111");
+        UUID strongId = UUID.fromString("22222222-2222-2222-2222-222222222222");
+        RankedCandidate required = requiredCandidate(
+                requiredId, lng + RoutePlannerHarness.metersToLng(220, lat), lat, 0.02);
+        RankedCandidate strong = aiCandidate(
+                strongId, lng + RoutePlannerHarness.metersToLng(400, lat), lat, 0.95);
+        RoutePlanner.RouteResult result = planner.plan(
+                List.of(strong, required),
+                context,
+                RoutePlanConstraints.of(List.of(required.spot()), PlanningMode.AI));
+        assertThat(result.hardConstraintFailure()).isNull();
+        assertThat(result.stops())
+                .extracting(stop -> stop.candidate().spot().getFeatureId())
+                .contains(requiredId);
+    }
+
+    @Test
+    void oneSatisfierCoversARequiredPointGroup() {
+        PlanningProperties properties = baseProperties();
+        properties.getSchedule().setMaxWaypoints(1);
+        properties.getSchedule().setMinWaypoints(1);
+        var context = RoutePlannerHarness.context(calm(), properties, RoutePlannerHarness.launch());
+        double lat = PlanningFixtures.HEAD_LAT;
+        double lng = PlanningFixtures.HEAD_LNG;
+        UUID origin = UUID.fromString("33333333-3333-3333-3333-333333333333");
+        UUID firstId = UUID.fromString("44444444-4444-4444-4444-444444444444");
+        UUID secondId = UUID.fromString("55555555-5555-5555-5555-555555555555");
+        RankedCandidate first = requiredCandidate(
+                firstId, lng + RoutePlannerHarness.metersToLng(160, lat), lat, 0.4);
+        RankedCandidate second = requiredCandidate(
+                secondId, lng + RoutePlannerHarness.metersToLng(240, lat), lat, 0.9);
+        first.spot().setOriginRequiredPointId(origin);
+        second.spot().setOriginRequiredPointId(origin);
+        RoutePlanner.RouteResult result = planner.plan(
+                List.of(first, second),
+                context,
+                RoutePlanConstraints.of(List.of(first.spot(), second.spot()), PlanningMode.AI));
+        assertThat(result.hardConstraintFailure()).isNull();
+        assertThat(result.stops()).hasSize(1);
+        assertThat(RoutePlanConstraints.of(List.of(first.spot(), second.spot()), PlanningMode.AI).requiredGroups())
+                .hasSize(1);
+    }
+
+    @Test
+    void visitingNeitherSatisfierLeavesTheRequiredSetInfeasible() {
+        PlanningProperties properties = baseProperties();
+        properties.getSchedule().setMaxWaypoints(1);
+        properties.getSchedule().setMaxTotalWaitMinutes(0);
+        properties.getSchedule().setWaitOptionsMinutes(List.of());
+        var context = RoutePlannerHarness.context(calm(), properties, RoutePlannerHarness.launch());
+        UUID origin = UUID.fromString("66666666-6666-6666-6666-666666666666");
+        RankedCandidate first = requiredCandidate(
+                UUID.fromString("77777777-7777-7777-7777-777777777777"),
+                PlanningFixtures.HEAD_LNG + RoutePlannerHarness.metersToLng(50_000, PlanningFixtures.HEAD_LAT),
+                PlanningFixtures.HEAD_LAT,
+                0.4);
+        RankedCandidate second = requiredCandidate(
+                UUID.fromString("88888888-8888-8888-8888-888888888888"),
+                PlanningFixtures.HEAD_LNG - RoutePlannerHarness.metersToLng(50_000, PlanningFixtures.HEAD_LAT),
+                PlanningFixtures.HEAD_LAT,
+                0.9);
+        first.spot().setOriginRequiredPointId(origin);
+        second.spot().setOriginRequiredPointId(origin);
+        RoutePlanConstraints constraints = RoutePlanConstraints.of(
+                List.of(first.spot(), second.spot()), PlanningMode.AI);
+        assertThat(constraints.coversAll(List.of())).isFalse();
+        RoutePlanner.RouteResult result = planner.plan(List.of(first, second), context, constraints);
+        assertThat(result.stops()).isEmpty();
+        assertThat(result.hardConstraintFailure()).isEqualTo(RoutePlanConstraints.REQUIRED_SET_INFEASIBLE);
+    }
+
+    @Test
     void requiredSetInfeasibleWhenSingleRequiredCannotFitWindow() {
         PlanningProperties properties = baseProperties();
         var context = RoutePlannerHarness.context(calm(), properties, RoutePlannerHarness.launch());

@@ -161,6 +161,11 @@ app:
       local-path-max-cells: 40000
       internal-cruise-kmh: 6
       casting-opportunity-meters: 40
+      intent-template-point-radius-m: 60
+      intent-template-path-corridor-m: 40
+      intent-required-point-radius-m: 40
+      intent-max-opportunities-per-intent: 3
+      intent-matching-version: intent-match-v1
       max-zone-portals: 4
       max-portal-pairs-per-zone: 8
       sample-along-m: 40
