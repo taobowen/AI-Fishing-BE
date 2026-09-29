@@ -1,10 +1,12 @@
 package com.aifishing.fishingtemplate.service;
 
 import com.aifishing.common.exception.BadRequestException;
+import com.aifishing.common.geo.GeoMapper;
 import com.aifishing.common.geo.PolygonalGeometries;
 import com.aifishing.fishingtemplate.domain.TemplateTargetKind;
 import com.aifishing.planning.candidate.LakePlanningGeometry;
 import org.locationtech.jts.geom.Geometry;
+import org.locationtech.jts.simplify.DouglasPeuckerSimplifier;
 import org.locationtech.jts.geom.LineString;
 import org.locationtech.jts.geom.MultiLineString;
 import org.locationtech.jts.geom.Point;
@@ -62,8 +64,20 @@ public class TemplateGeometryValidator {
         return point;
     }
 
+    static Geometry simplifyForStorage(Geometry geometry) {
+        if (geometry == null || geometry.isEmpty() || geometry.getNumPoints() < 3) {
+            return geometry;
+        }
+        Geometry simplified = DouglasPeuckerSimplifier.simplify(geometry, GeoMapper.MAP_LINE_SIMPLIFY_DEG);
+        if (simplified == null || simplified.isEmpty()) {
+            return geometry;
+        }
+        simplified.setSRID(geometry.getSRID() == 0 ? 4326 : geometry.getSRID());
+        return simplified;
+    }
+
     private Geometry validatePath(Geometry raw, LakePlanningGeometry lake) {
-        LineString line = asLineString(raw);
+        LineString line = asLineString(simplifyForStorage(raw));
         assertVertexLimit(line.getNumPoints(), TemplateGeometryLimits.MAX_PATH_VERTICES, "PATH");
         Geometry clipped;
         try {
@@ -84,7 +98,7 @@ public class TemplateGeometryValidator {
     }
 
     private Geometry validateZone(Geometry raw, LakePlanningGeometry lake) {
-        Geometry polygonal = PolygonalGeometries.of(raw);
+        Geometry polygonal = PolygonalGeometries.of(simplifyForStorage(raw));
         if (polygonal == null || polygonal.isEmpty()) {
             throw invalid("ZONE targets must be a Polygon or MultiPolygon");
         }
