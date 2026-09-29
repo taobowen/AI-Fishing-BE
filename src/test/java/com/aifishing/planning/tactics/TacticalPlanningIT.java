@@ -101,7 +101,7 @@ class TacticalPlanningIT extends AbstractIntegrationTest {
         UUID tripId = UUID.fromString(planA.path("tripId").asText());
         String tacticalA = planA.path("waypoints").get(0).path("tactical").toString();
 
-        Gear lure = saveLure(LureFamily.NED_RIG, LureLengthBand.UNDER_3_IN, null, List.of(LureColorFamily.GREEN_PUMPKIN));
+        Gear lure = saveLure(LureFamily.JIG, null, LureWeightBand.FROM_1_8_TO_1_4, List.of(LureColorFamily.GREEN_PUMPKIN));
         mockMvc.perform(asDev(get("/api/v1/trips/" + tripId + "/plan")))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.id", is(planA.path("id").asText())));

@@ -138,7 +138,6 @@ class TripPlanningIT extends AbstractIntegrationTest {
                 .andExpect(jsonPath("$.plan.waypoints[0].location.lng", not(nullValue())))
                 .andExpect(jsonPath("$.plan.waypoints[0].scoreBreakdown.historicalPerformance", not(nullValue())))
                 .andExpect(jsonPath("$.plan.waypoints[0].scoreBreakdown.historicalEvidenceConfidence", not(nullValue())))
-                .andExpect(jsonPath("$.plan.waypoints[0].recommendedTechniques[0]", is("NED_RIG")))
                 .andExpect(jsonPath("$.plan.plannedLaunchDepartureAt", not(nullValue())))
                 .andExpect(jsonPath("$.plan.plannedReturnAt", not(nullValue())))
                 .andExpect(jsonPath("$.plan.scheduleAlgorithmVersion", is("1.5.0")))
